@@ -19,10 +19,10 @@ export const metadata: Metadata = {
       process.env.URL ??
       "http://localhost:3000",
   ),
-  title: "Vibix Cinema",
-  description: "Каталог фильмов и сериалов из Vibix",
+  title: "Doramy Online - Смотри бесплатно фильмы",
+  description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
   openGraph: {
-    siteName: "Vibix Cinema",
+    siteName: "Doramy Online",
     type: "website",
   },
 };

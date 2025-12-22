@@ -23,7 +23,7 @@ export async function generateMetadata(
   const { kpId } = await params;
   const id = Number(kpId);
   if (!Number.isFinite(id)) {
-    return { title: "Vibix Cinema" };
+    return { title: "Doramy Online - Смотри бесплатно фильмы" };
   }
 
   try {
@@ -34,7 +34,7 @@ export async function generateMetadata(
     const description =
       video.description_short ??
       video.description ??
-      "Смотреть онлайн на Vibix Cinema";
+      "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online";
 
     const images = [video.backdrop_url, video.poster_url]
       .filter(Boolean)
@@ -60,7 +60,7 @@ export async function generateMetadata(
       },
     };
   } catch {
-    return { title: "Vibix Cinema" };
+    return { title: "Doramy Online - Смотри бесплатно фильмы" };
   }
 }
 

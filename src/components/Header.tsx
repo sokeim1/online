@@ -7,8 +7,8 @@ export function Header() {
         <Link href="/" className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-fuchsia-500 to-indigo-500" />
           <div className="leading-tight">
-            <div className="text-sm font-semibold text-white">Vibix Cinema</div>
-            <div className="text-xs text-white/60">каталог</div>
+            <div className="text-sm font-semibold text-white">Doramy Online</div>
+            <div className="text-xs text-white/60">Смотри бесплатно фильмы</div>
           </div>
         </Link>
         <div className="text-xs text-white/60">/movie/{"{kpId}"}</div>
