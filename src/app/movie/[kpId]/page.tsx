@@ -322,7 +322,6 @@ export default async function MoviePage({
                     className="absolute inset-0 h-full w-full"
                     allow="autoplay; fullscreen; picture-in-picture"
                     allowFullScreen
-                    referrerPolicy="no-referrer"
                     title={title}
                   />
                 </div>
