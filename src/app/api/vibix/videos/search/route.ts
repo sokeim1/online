@@ -19,8 +19,15 @@ type CatalogItem = {
   uploaded_at: string;
 };
 
-let catalogCache: { ts: number; items: CatalogItem[]; perPage: number; lastPage: number } | null = null;
-let catalogPromise: Promise<CatalogItem[]> | null = null;
+type FuzzyCacheEntry = {
+  ts: number;
+  scannedUpToPage: number;
+  lastPage: number;
+  perPage: number;
+  matches: CatalogItem[];
+};
+
+const fuzzyCache = new Map<string, FuzzyCacheEntry>();
 
 function normalizeText(input: string): string {
   return input
@@ -34,64 +41,34 @@ function pickHaystack(v: CatalogItem): string {
   return normalizeText([v.name_rus, v.name_eng, v.name].filter(Boolean).join(" "));
 }
 
-async function ensureCatalog(): Promise<CatalogItem[]> {
-  const now = Date.now();
-  const ttlMs = 6 * 60 * 60 * 1000;
-  if (catalogCache && now - catalogCache.ts < ttlMs) {
-    return catalogCache.items;
-  }
-
-  if (catalogPromise) return catalogPromise;
-
-  catalogPromise = (async () => {
-    const first = await getVibixVideoLinks({ page: 1, limit: 100 });
-    const last = first.meta?.last_page ?? 1;
-    const items: CatalogItem[] = [...first.data];
-
-    for (let p = 2; p <= last; p += 1) {
-      const resp = await getVibixVideoLinks({ page: p, limit: 100 });
-      items.push(...resp.data);
-    }
-
-    catalogCache = {
-      ts: Date.now(),
-      items,
-      perPage: first.meta?.per_page ?? 100,
-      lastPage: last,
-    };
-
-    catalogPromise = null;
-    return items;
-  })().catch((e) => {
-    catalogPromise = null;
-    throw e;
-  });
-
-  return catalogPromise;
-}
-
-function fuzzySearch(all: CatalogItem[], rawQuery: string): CatalogItem[] {
+function isMatch(haystack: string, rawQuery: string): { ok: boolean; score: number } {
   const q = normalizeText(rawQuery);
   const words = q.split(/\s+/).filter(Boolean);
-  if (!words.length) return [];
+  if (!words.length) return { ok: false, score: 0 };
 
+  let score = 0;
+  for (const w of words) {
+    const idx = haystack.indexOf(w);
+    if (idx === -1) return { ok: false, score: 0 };
+    score += w.length >= 4 ? 3 : 1;
+    if (idx === 0) score += 1;
+  }
+
+  if (haystack === q) score += 10;
+  if (haystack.includes(q)) score += 4;
+  return { ok: true, score };
+}
+
+function rankAndDedupe(items: CatalogItem[], rawQuery: string): CatalogItem[] {
+  const seen = new Set<number>();
   const scored: Array<{ v: CatalogItem; score: number }> = [];
-  for (const v of all) {
+
+  for (const v of items) {
+    if (seen.has(v.id)) continue;
+    seen.add(v.id);
     const hay = pickHaystack(v);
-    let ok = true;
-    let score = 0;
-    for (const w of words) {
-      const idx = hay.indexOf(w);
-      if (idx === -1) {
-        ok = false;
-        break;
-      }
-      score += w.length >= 4 ? 3 : 1;
-      if (idx === 0) score += 1;
-    }
+    const { ok, score } = isMatch(hay, rawQuery);
     if (!ok) continue;
-    if (hay === q) score += 10;
-    if (hay.includes(q)) score += 4;
     scored.push({ v, score });
   }
 
@@ -104,6 +81,53 @@ function fuzzySearch(all: CatalogItem[], rawQuery: string): CatalogItem[] {
   });
 
   return scored.map((x) => x.v);
+}
+
+async function fuzzySearchPaged(rawQuery: string, targetCount: number): Promise<FuzzyCacheEntry> {
+  const key = normalizeText(rawQuery);
+  const now = Date.now();
+  const ttlMs = 60 * 60 * 1000;
+
+  const existing = fuzzyCache.get(key);
+  if (existing && now - existing.ts < ttlMs && existing.matches.length >= targetCount) {
+    return existing;
+  }
+
+  let entry: FuzzyCacheEntry;
+  if (existing && now - existing.ts < ttlMs) {
+    entry = existing;
+  } else {
+    const first = await getVibixVideoLinks({ page: 1, limit: 100 });
+    entry = {
+      ts: now,
+      scannedUpToPage: 0,
+      lastPage: first.meta?.last_page ?? 1,
+      perPage: first.meta?.per_page ?? 100,
+      matches: [],
+    };
+  }
+
+  const maxPagesPerRequest = 25;
+  let scannedThisRequest = 0;
+
+  for (
+    let p = Math.max(1, entry.scannedUpToPage + 1);
+    p <= entry.lastPage && scannedThisRequest < maxPagesPerRequest && entry.matches.length < targetCount;
+    p += 1
+  ) {
+    const resp = await getVibixVideoLinks({ page: p, limit: 100 });
+    entry.lastPage = resp.meta?.last_page ?? entry.lastPage;
+    entry.perPage = resp.meta?.per_page ?? entry.perPage;
+
+    const merged = entry.matches.concat(resp.data);
+    entry.matches = rankAndDedupe(merged, rawQuery);
+    entry.scannedUpToPage = p;
+    scannedThisRequest += 1;
+  }
+
+  entry.ts = now;
+  fuzzyCache.set(key, entry);
+  return entry;
 }
 
 export async function GET(req: Request) {
@@ -156,8 +180,9 @@ export async function GET(req: Request) {
       });
     }
 
-    const all = await ensureCatalog();
-    const matches = fuzzySearch(all, name);
+    const targetCount = safePage * safeLimit;
+    const entry = await fuzzySearchPaged(name, targetCount);
+    const matches = entry.matches;
     const total = matches.length;
     const last_page = Math.max(1, Math.ceil(total / safeLimit));
     const current_page = Math.min(safePage, last_page);
