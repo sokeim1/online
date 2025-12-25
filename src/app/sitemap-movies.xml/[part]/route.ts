@@ -34,9 +34,27 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
 
   const urls: Array<{ loc: string; lastmod?: string }> = [];
 
-  for (let page = startPage; page <= endPage; page += 1) {
-    const res = await getVibixVideoLinks({ type: "movie", page, limit });
+  const first = await getVibixVideoLinks({ type: "movie", page: startPage, limit });
+  for (const v of first.data) {
+    if (!v.kp_id) continue;
+    urls.push({
+      loc: `${baseUrl}/movie/${v.kp_id}`,
+      lastmod: toLastMod(v.uploaded_at) ?? undefined,
+    });
+  }
 
+  const lastPage = first.meta?.last_page ?? startPage;
+  const maxPage = Math.min(endPage, lastPage);
+  const pages: number[] = [];
+  for (let page = startPage + 1; page <= maxPage; page += 1) {
+    pages.push(page);
+  }
+
+  const results = pages.length
+    ? await Promise.all(pages.map((page) => getVibixVideoLinks({ type: "movie", page, limit })))
+    : [];
+
+  for (const res of results) {
     for (const v of res.data) {
       if (!v.kp_id) continue;
       urls.push({
@@ -44,9 +62,6 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
         lastmod: toLastMod(v.uploaded_at) ?? undefined,
       });
     }
-
-    const lastPage = res.meta?.last_page ?? page;
-    if (page >= lastPage) break;
   }
 
   const body = urls
@@ -78,7 +93,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
     return new Response(cached.xml, {
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
-        "Cache-Control": "public, max-age=0, s-maxage=3600",
+        "Cache-Control": "public, max-age=0, s-maxage=86400",
       },
     });
   }
@@ -89,7 +104,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
   return new Response(xml, {
     headers: {
       "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, s-maxage=3600",
+      "Cache-Control": "public, max-age=0, s-maxage=86400",
     },
   });
 }
