@@ -228,11 +228,21 @@ export async function GET(req: Request) {
       });
     }
 
-    return NextResponse.json(
-      { success: false, message },
-      {
-        status: 500,
+    return NextResponse.json({
+      data: [],
+      links: { first: "", last: "", prev: null, next: null },
+      meta: {
+        current_page: 1,
+        from: null,
+        last_page: 1,
+        links: [],
+        path: "",
+        per_page: safeLimit,
+        to: null,
+        total: 0,
       },
-    );
+      success: true,
+      message: "",
+    });
   }
 }

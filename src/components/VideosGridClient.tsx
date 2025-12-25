@@ -75,11 +75,12 @@ export function VideosGridClient() {
     if (page !== 1) sp.set("page", String(page));
 
     const next = sp.toString();
-    const current = searchParams.toString();
+    const current = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : searchParams.toString();
     if (next === current) return;
 
-    router.replace(next ? `${pathname}?${next}` : pathname);
-  }, [debouncedQuery, page, pathname, router, searchParams, type]);
+    const url = next ? `${pathname}?${next}` : pathname;
+    window.history.replaceState(null, "", url);
+  }, [debouncedQuery, page, pathname, searchParams, type]);
 
   const canLoadMore = useMemo(() => {
     if (isLoading) return false;
