@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -21,9 +22,46 @@ export const metadata: Metadata = {
   ),
   title: "Doramy Online - Смотри бесплатно фильмы",
   description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+  applicationName: "Doramy Online",
+  keywords: [
+    "дорамы онлайн",
+    "doramy online",
+    "смотреть фильмы онлайн",
+    "смотреть сериалы онлайн",
+    "корейские дорамы",
+    "азиатские сериалы",
+    "Vibix",
+  ],
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+    },
+  },
+  alternates: {
+    canonical: "/",
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+  },
   openGraph: {
     siteName: "Doramy Online",
     type: "website",
+    title: "Doramy Online - Смотри бесплатно фильмы",
+    description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+    url: "/",
+    images: [{ url: "/icon.svg" }],
+  },
+  twitter: {
+    card: "summary",
+    title: "Doramy Online - Смотри бесплатно фильмы",
+    description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+    images: ["/icon.svg"],
   },
 };
 
@@ -33,10 +71,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru">
+    <html lang="ru" data-theme="dark" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <Script id="theme-init" strategy="beforeInteractive">
+          {"(function(){function a(){try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;}}catch(e){}}a();try{window.addEventListener('pageshow',a);}catch(e){}})();"}
+        </Script>
         {children}
       </body>
     </html>

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { Header } from "@/components/Header";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
+import { proxyImageUrl } from "@/lib/imageProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,6 +86,8 @@ export default async function MoviePage({
 
   const title = pickTitle(video);
   const description = video.description_short ?? video.description ?? null;
+  const posterSrc = proxyImageUrl(video.poster_url);
+  const backdropSrc = proxyImageUrl(video.backdrop_url);
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -111,7 +114,7 @@ export default async function MoviePage({
       : null;
 
   return (
-    <div className="min-h-screen bg-[#07070b] text-white">
+    <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
       <script
         type="application/ld+json"
         // eslint-disable-next-line react/no-danger
@@ -119,36 +122,36 @@ export default async function MoviePage({
       />
       <Header />
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-20 pt-8">
-        <Link href="/" className="text-sm text-white/70 hover:text-white">
+      <main className="mx-auto w-full max-w-6xl px-4 pb-14 pt-5 sm:pb-20 sm:pt-8">
+        <Link href="/" className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)]">
           ← Назад к каталогу
         </Link>
 
-        <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-white/5">
+        <div className="mt-5 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:mt-6">
           <div className="relative">
-            <div className="h-56 w-full bg-gradient-to-br from-fuchsia-700/30 via-indigo-700/20 to-transparent sm:h-72">
-              {video.backdrop_url ? (
+            <div className="h-56 w-full bg-gradient-to-br from-[color:var(--accent-soft)] via-transparent to-transparent sm:h-72">
+              {backdropSrc ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={video.backdrop_url}
+                  src={backdropSrc}
                   alt={title}
                   className="h-full w-full object-cover opacity-70"
                 />
               ) : null}
             </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-[#07070b] via-[#07070b]/20 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--background)] via-[color:var(--background)]/20 to-transparent" />
 
             <div className="relative -mt-24 flex flex-col gap-6 px-5 pb-6 sm:-mt-28 sm:flex-row sm:items-end sm:px-6">
-              <div className="w-40 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:w-56">
-                {video.poster_url ? (
+              <div className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:w-56">
+                {posterSrc ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={video.poster_url}
+                    src={posterSrc}
                     alt={title}
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <div className="flex aspect-[2/3] w-full items-center justify-center text-xs text-white/60">
+                  <div className="flex aspect-[2/3] w-full items-center justify-center text-xs text-[color:var(--muted)]">
                     Нет постера
                   </div>
                 )}
@@ -159,37 +162,37 @@ export default async function MoviePage({
                   {title}
                 </h1>
                 {video.name_original ? (
-                  <div className="mt-1 text-sm text-white/60">{video.name_original}</div>
+                  <div className="mt-1 text-sm text-[color:var(--muted)]">{video.name_original}</div>
                 ) : null}
 
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-white/70">
+                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[color:var(--muted)]">
                   {video.year ? (
-                    <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1">
+                    <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
                       {video.year}
                     </span>
                   ) : null}
-                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1">
+                  <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
                     {video.type === "movie" ? "Фильм" : "Сериал"}
                   </span>
-                  <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1">
+                  <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
                     {video.quality}
                   </span>
                   {video.duration ? (
-                    <span className="rounded-xl border border-white/10 bg-white/5 px-3 py-1">
+                    <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
                       {video.duration} мин
                     </span>
                   ) : null}
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-3">
-                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-xs text-white/60">Кинопоиск</div>
+                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3">
+                    <div className="text-xs text-[color:var(--muted)]">Кинопоиск</div>
                     <div className="text-lg font-semibold">
                       {video.kp_rating ?? "—"}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-xs text-white/60">IMDb</div>
+                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3">
+                    <div className="text-xs text-[color:var(--muted)]">IMDb</div>
                     <div className="text-lg font-semibold">
                       {video.imdb_rating ?? "—"}
                     </div>
@@ -199,44 +202,31 @@ export default async function MoviePage({
             </div>
           </div>
 
-          <div className="grid gap-8 px-5 pb-8 sm:px-6 lg:grid-cols-5">
+          <div className="grid gap-6 px-5 pb-7 sm:gap-8 sm:px-6 sm:pb-8 lg:grid-cols-5">
             <section className="lg:col-span-3">
-              <h2 className="text-lg font-semibold">Просмотр</h2>
-              <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-black">
-                <div className="relative aspect-video w-full">
-                  <iframe
-                    src={video.iframe_url}
-                    className="absolute inset-0 h-full w-full"
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    allowFullScreen
-                    referrerPolicy="no-referrer"
-                    title={title}
-                  />
-                </div>
-              </div>
+              <h2 className="text-lg font-semibold">Описание</h2>
 
               {video.description || video.description_short ? (
-                <>
-                  <h2 className="mt-8 text-lg font-semibold">Описание</h2>
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-white/70">
-                    {video.description ?? video.description_short}
-                  </p>
-                </>
-              ) : null}
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
+                  {video.description ?? video.description_short}
+                </p>
+              ) : (
+                <p className="mt-3 text-sm text-[color:var(--muted)]">Описание отсутствует.</p>
+              )}
             </section>
 
             <aside className="lg:col-span-2">
               <h2 className="text-lg font-semibold">Детали</h2>
 
-              <div className="mt-3 space-y-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="mt-3 space-y-4 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
                 {video.genre?.length ? (
                   <div>
-                    <div className="text-xs text-white/60">Жанры</div>
+                    <div className="text-xs text-[color:var(--muted)]">Жанры</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {video.genre.map((g) => (
                         <span
                           key={g}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"
+                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
                         >
                           {g}
                         </span>
@@ -247,12 +237,12 @@ export default async function MoviePage({
 
                 {video.country?.length ? (
                   <div>
-                    <div className="text-xs text-white/60">Страны</div>
+                    <div className="text-xs text-[color:var(--muted)]">Страны</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {video.country.map((c) => (
                         <span
                           key={c}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"
+                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
                         >
                           {c}
                         </span>
@@ -263,12 +253,12 @@ export default async function MoviePage({
 
                 {video.voiceovers?.length ? (
                   <div>
-                    <div className="text-xs text-white/60">Озвучки</div>
+                    <div className="text-xs text-[color:var(--muted)]">Озвучки</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {video.voiceovers.map((v) => (
                         <span
                           key={v.id}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"
+                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
                         >
                           {v.name}
                         </span>
@@ -279,12 +269,12 @@ export default async function MoviePage({
 
                 {video.tags?.length ? (
                   <div>
-                    <div className="text-xs text-white/60">Теги</div>
+                    <div className="text-xs text-[color:var(--muted)]">Теги</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {video.tags.map((t) => (
                         <span
                           key={t.id}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80"
+                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
                         >
                           {t.name}
                         </span>
@@ -301,16 +291,16 @@ export default async function MoviePage({
                     {serialInfo.seasons.map((s) => (
                       <details
                         key={s.name}
-                        className="rounded-2xl border border-white/10 bg-white/5 p-4"
+                        className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
                       >
-                        <summary className="cursor-pointer text-sm font-medium text-white/90">
+                        <summary className="cursor-pointer text-sm font-medium text-[color:var(--foreground)]">
                           {s.name}
                         </summary>
                         <div className="mt-3 grid grid-cols-1 gap-2">
                           {s.series.map((ep) => (
                             <div
                               key={ep.id}
-                              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75"
+                              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--muted)]"
                             >
                               {ep.name}
                             </div>
@@ -322,6 +312,22 @@ export default async function MoviePage({
                 </div>
               ) : null}
             </aside>
+
+            <section className="lg:col-span-5">
+              <h2 className="text-lg font-semibold">Просмотр</h2>
+              <div className="mt-3 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
+                <div className="relative aspect-video w-full">
+                  <iframe
+                    src={video.iframe_url}
+                    className="absolute inset-0 h-full w-full"
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    allowFullScreen
+                    referrerPolicy="no-referrer"
+                    title={title}
+                  />
+                </div>
+              </div>
+            </section>
           </div>
         </div>
       </main>

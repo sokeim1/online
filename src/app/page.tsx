@@ -3,7 +3,7 @@ import { VideosGridClient } from "@/components/VideosGridClient";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[#07070b] text-white">
+    <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
       <Header />
       <VideosGridClient />
     </div>

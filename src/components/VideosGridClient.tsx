@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type { VibixVideoLink, VibixVideoType, VibixVideoLinksResponse } from "@/lib/vibix";
+import { proxyImageUrl } from "@/lib/imageProxy";
 
 import { VideoCard } from "@/components/VideoCard";
 
@@ -27,6 +28,7 @@ export function VideosGridClient() {
   const [total, setTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [homeNonce, setHomeNonce] = useState(0);
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -105,6 +107,26 @@ export function VideosGridClient() {
     setDebouncedQuery("");
     setSuggestions([]);
   }
+
+  useEffect(() => {
+    function onHome() {
+      setQuery("");
+      setDebouncedQuery("");
+      setSuggestions([]);
+      setType("all");
+      setItems([]);
+      setPage(1);
+      setLastPage(null);
+      setTotal(null);
+      setError(null);
+      setHomeNonce((n) => n + 1);
+    }
+
+    window.addEventListener("doramy:home", onHome);
+    return () => {
+      window.removeEventListener("doramy:home", onHome);
+    };
+  }, []);
 
   function resetAndReload() {
     setItems([]);
@@ -190,7 +212,7 @@ export function VideosGridClient() {
         const sp = new URLSearchParams();
         sp.set("page", String(page));
         sp.set("limit", "30");
-        if (!isSearchMode && type !== "all") sp.set("type", type);
+        if (type !== "all") sp.set("type", type);
 
         const url = isSearchMode
           ? `/api/vibix/videos/search?${new URLSearchParams({
@@ -211,16 +233,25 @@ export function VideosGridClient() {
               throw new Error(maybeJson.message);
             }
           } catch {
-            // ignore JSON parse errors
           }
           throw new Error(text ? `HTTP ${res.status}: ${text}` : `HTTP ${res.status}`);
         }
 
         const json = parseResponse(await res.json());
 
-        setItems(json.data);
-        setLastPage(json.meta?.last_page ?? null);
-        setTotal(json.meta?.total ?? null);
+        const filtered =
+          isSearchMode && type !== "all"
+            ? json.data.filter((v) => v.type === type)
+            : json.data;
+
+        setItems(filtered);
+        if (isSearchMode && type !== "all") {
+          setLastPage(1);
+          setTotal(filtered.length);
+        } else {
+          setLastPage(json.meta?.last_page ?? null);
+          setTotal(json.meta?.total ?? null);
+        }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         setError(e instanceof Error ? e.message : "Unknown error");
@@ -234,7 +265,7 @@ export function VideosGridClient() {
     return () => {
       ac.abort();
     };
-  }, [page, type, isSearchMode, debouncedQuery]);
+  }, [page, type, isSearchMode, debouncedQuery, homeNonce]);
 
   function goToPage(nextPage: number) {
     if (!lastPage) {
@@ -245,9 +276,9 @@ export function VideosGridClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-16">
-      <div className="flex flex-col gap-3 pt-8">
-        <div className="flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/5 p-3 sm:flex-row sm:items-center">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-12 sm:pb-16">
+      <div className="flex flex-col gap-3 pt-6 sm:pt-8">
+        <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:flex-row sm:items-center">
           <div className="relative w-full flex-1">
             <input
               value={query}
@@ -264,18 +295,19 @@ export function VideosGridClient() {
                 }
               }}
               placeholder="Поиск: название, kpId (цифры) или IMDb (tt123...)"
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20"
+              className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
             />
 
             {isSearchFocused && !isDirectIdQuery && query.trim().length >= 2 ? (
-              <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-[#0b0b12] shadow-xl">
+              <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--background)] shadow-xl">
                 {isSuggestionsLoading ? (
-                  <div className="p-3 text-xs text-white/60">Поиск...</div>
+                  <div className="p-3 text-xs text-[color:var(--muted)]">Поиск...</div>
                 ) : suggestions.length ? (
                   <div className="max-h-80 overflow-auto">
                     {suggestions.map((s) => {
                       const title = pickTitle(s);
                       const canOpen = !!s.kp_id;
+                      const posterSrc = proxyImageUrl(s.poster_url);
 
                       return (
                         <button
@@ -287,13 +319,13 @@ export function VideosGridClient() {
                             if (!s.kp_id) return;
                             router.push(`/movie/${s.kp_id}`);
                           }}
-                          className="flex w-full items-center gap-3 border-b border-white/5 p-3 text-left hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          <div className="h-12 w-9 overflow-hidden rounded-lg border border-white/10 bg-white/10">
-                            {s.poster_url ? (
+                          <div className="h-12 w-9 overflow-hidden rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]">
+                            {posterSrc ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
-                                src={s.poster_url}
+                                src={posterSrc}
                                 alt={title}
                                 className="h-full w-full object-cover"
                                 loading="lazy"
@@ -301,8 +333,8 @@ export function VideosGridClient() {
                             ) : null}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm text-white/90">{title}</div>
-                            <div className="mt-0.5 text-xs text-white/50">
+                            <div className="truncate text-sm text-[color:var(--foreground)]">{title}</div>
+                            <div className="mt-0.5 text-xs text-[color:var(--muted)]">
                               {s.year ?? "—"} • {s.type} • {s.quality}
                               {!canOpen ? " • нет kp_id" : ""}
                             </div>
@@ -312,7 +344,7 @@ export function VideosGridClient() {
                     })}
                   </div>
                 ) : (
-                  <div className="p-3 text-xs text-white/60">Ничего не найдено</div>
+                  <div className="p-3 text-xs text-[color:var(--muted)]">Ничего не найдено</div>
                 )}
               </div>
             ) : null}
@@ -321,14 +353,14 @@ export function VideosGridClient() {
             <button
               type="button"
               onClick={onSubmitSearch}
-              className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90"
+              className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
             >
               Найти
             </button>
             <button
               type="button"
               onClick={clearSearch}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/90 hover:bg-white/10"
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
             >
               Очистить
             </button>
@@ -336,16 +368,17 @@ export function VideosGridClient() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-balance text-2xl font-semibold tracking-tight text-white">
+          <h1 className="text-balance text-2xl font-semibold tracking-tight text-[color:var(--foreground)]">
             {isSearchMode ? "Результаты поиска" : "Все видео из Vibix"}
           </h1>
 
-          <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+          <div className="flex items-center gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-1">
             <button
               onClick={() => setType("all")}
-              disabled={isSearchMode}
               className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                type === "all" ? "bg-white text-black" : "text-white/80 hover:bg-white/10"
+                type === "all"
+                  ? "bg-[color:var(--accent)] text-black"
+                  : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
               }`}
               type="button"
             >
@@ -353,9 +386,10 @@ export function VideosGridClient() {
             </button>
             <button
               onClick={() => setType("movie")}
-              disabled={isSearchMode}
               className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                type === "movie" ? "bg-white text-black" : "text-white/80 hover:bg-white/10"
+                type === "movie"
+                  ? "bg-[color:var(--accent)] text-black"
+                  : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
               }`}
               type="button"
             >
@@ -363,9 +397,10 @@ export function VideosGridClient() {
             </button>
             <button
               onClick={() => setType("serial")}
-              disabled={isSearchMode}
               className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                type === "serial" ? "bg-white text-black" : "text-white/80 hover:bg-white/10"
+                type === "serial"
+                  ? "bg-[color:var(--accent)] text-black"
+                  : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
               }`}
               type="button"
             >
@@ -374,44 +409,61 @@ export function VideosGridClient() {
           </div>
         </div>
 
-        <p className="text-sm text-white/60">
-          Показано: <span className="text-white/90">{items.length}</span>
+        <p className="text-sm text-[color:var(--muted)]">
+          Показано: <span className="text-[color:var(--foreground)]">{items.length}</span>
           {total != null ? (
             <>
               {" "}
-              <span className="text-white/40">•</span> всего {total}
+              <span className="opacity-60">•</span> всего {total}
             </>
           ) : null}
           {lastPage ? (
             <>
               {" "}
-              <span className="text-white/40">•</span> стр. {page} / {lastPage}
+              <span className="opacity-60">•</span> стр. {page} / {lastPage}
             </>
           ) : null}
         </p>
       </div>
 
       {error ? (
-        <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">
+        <div className="mt-6 rounded-2xl border border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--foreground)]">
           <div className="font-medium">Ошибка</div>
-          <div className="mt-1 whitespace-pre-wrap">{error}</div>
+          <div className="mt-1 whitespace-pre-wrap text-[color:var(--muted)]">{error}</div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={resetAndReload}
-              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-xs text-white hover:bg-white/15"
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
             >
               Повторить
             </button>
-            <div className="text-xs text-white/70">
-              Если видишь <span className="text-white">Missing env: VIBIX_API_KEY</span>, создай
-              <span className="text-white"> .env.local</span> и перезапусти <span className="text-white">npm run dev</span>.
-            </div>
           </div>
         </div>
       ) : null}
 
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      {!isLoading && !error && isSearchMode && items.length === 0 ? (
+        <div className="mt-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+          <div className="text-sm font-medium text-[color:var(--foreground)]">Контент не найден</div>
+          <div className="mt-1 text-xs text-[color:var(--muted)]">
+            Попробуй другой запрос или вернись на главную.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                clearSearch();
+                router.push("/");
+              }}
+              className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-xs font-medium text-black hover:opacity-90"
+            >
+              На главную
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {items.map((v) => (
           <VideoCard key={`${v.id}-${v.kp_id ?? "nokp"}`} video={v} />
         ))}
@@ -421,9 +473,9 @@ export function VideosGridClient() {
               <div
                 // eslint-disable-next-line react/no-array-index-key
                 key={`sk-${idx}`}
-                className="animate-pulse overflow-hidden rounded-2xl border border-white/10 bg-white/5"
+                className="animate-pulse overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]"
               >
-                <div className="aspect-[2/3] w-full bg-white/10" />
+                <div className="aspect-[2/3] w-full bg-[color:var(--surface-hover)]" />
               </div>
             ))
           : null}
@@ -436,7 +488,7 @@ export function VideosGridClient() {
               type="button"
               onClick={() => goToPage(page - 1)}
               disabled={page <= 1 || isLoading || !!error}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/90 disabled:opacity-40"
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
             >
               Назад
             </button>
@@ -456,8 +508,8 @@ export function VideosGridClient() {
                     disabled={isLoading || !!error}
                     className={`min-w-10 rounded-xl border px-4 py-2 text-xs transition disabled:opacity-40 ${
                       p === page
-                        ? "border-white/20 bg-white text-black"
-                        : "border-white/10 bg-white/5 text-white/90 hover:bg-white/10"
+                        ? "border-[color:var(--border)] bg-[color:var(--accent)] text-black"
+                        : "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
                     }`}
                   >
                     {p}
@@ -470,13 +522,13 @@ export function VideosGridClient() {
               type="button"
               onClick={() => goToPage(page + 1)}
               disabled={(lastPage != null ? page >= lastPage : false) || isLoading || !!error}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/90 disabled:opacity-40"
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
             >
               Вперёд
             </button>
           </div>
 
-          <div className="text-xs text-white/50">
+          <div className="text-xs text-[color:var(--muted)]">
             Страница {page} из {lastPage}
           </div>
         </div>

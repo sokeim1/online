@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import type { VibixVideoLink } from "@/lib/vibix";
+import { proxyImageUrl } from "@/lib/imageProxy";
 
 function pickTitle(v: VibixVideoLink): string {
   return v.name_rus ?? v.name_eng ?? v.name;
@@ -9,20 +10,21 @@ function pickTitle(v: VibixVideoLink): string {
 export function VideoCard({ video }: { video: VibixVideoLink }) {
   const title = pickTitle(video);
   const href = video.kp_id ? `/movie/${video.kp_id}` : undefined;
+  const posterSrc = proxyImageUrl(video.poster_url);
 
   const card = (
-    <div className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+    <div className="group relative overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
       <div className="aspect-[2/3] w-full">
-        {video.poster_url ? (
+        {posterSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={video.poster_url}
+            src={posterSrc}
             alt={title}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-white/10 to-white/0 text-xs text-white/60">
+          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[color:var(--surface-hover)] to-transparent text-xs text-[color:var(--muted)]">
             Нет постера
           </div>
         )}
@@ -34,10 +36,10 @@ export function VideoCard({ video }: { video: VibixVideoLink }) {
           <div className="line-clamp-2 text-sm font-semibold text-white">{title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/70">
             {video.year ? <span>{video.year}</span> : null}
-            <span className="rounded-md border border-white/10 bg-white/10 px-2 py-0.5">
+            <span className="rounded-md border border-white/15 bg-black/30 px-2 py-0.5">
               {video.type}
             </span>
-            <span className="rounded-md border border-white/10 bg-white/10 px-2 py-0.5">
+            <span className="rounded-md border border-white/15 bg-black/30 px-2 py-0.5">
               {video.quality}
             </span>
           </div>
