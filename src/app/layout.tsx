@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   title: "Doramy Online - Смотри бесплатно фильмы",
   description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
   applicationName: "Doramy Online",
+  manifest: "/manifest.webmanifest",
   keywords: [
     "дорамы онлайн",
     "doramy online",
@@ -48,6 +49,8 @@ export const metadata: Metadata = {
       { url: "/favicon.ico" },
       { url: "/icon.svg", type: "image/svg+xml" },
     ],
+    shortcut: ["/favicon.ico"],
+    apple: ["/icon.svg"],
   },
   openGraph: {
     siteName: "Doramy Online",
@@ -63,6 +66,10 @@ export const metadata: Metadata = {
     description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
     images: ["/icon.svg"],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2ee58a",
 };
 
 export default function RootLayout({

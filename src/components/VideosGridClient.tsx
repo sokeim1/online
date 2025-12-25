@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { VibixVideoLink, VibixVideoType, VibixVideoLinksResponse } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
@@ -20,6 +20,9 @@ function parseResponse(data: unknown): VibixVideoLinksResponse {
 
 export function VideosGridClient() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const didInitFromUrl = useRef(false);
 
   const [type, setType] = useState<TypeFilter>("all");
   const [items, setItems] = useState<VibixVideoLink[]>([]);
@@ -35,6 +38,48 @@ export function VideosGridClient() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [suggestions, setSuggestions] = useState<VibixVideoLink[]>([]);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
+
+  useEffect(() => {
+    const q = searchParams.get("q") ?? "";
+    const t = searchParams.get("type") ?? "all";
+    const pRaw = searchParams.get("page");
+    const p = pRaw ? Number.parseInt(pRaw, 10) : 1;
+
+    const nextType: TypeFilter = t === "movie" || t === "serial" || t === "all" ? t : "all";
+    const nextPage = Number.isFinite(p) && p > 0 ? p : 1;
+    const nextQuery = q;
+    const nextDebounced = q.trim();
+
+    if (!didInitFromUrl.current) {
+      didInitFromUrl.current = true;
+      setType(nextType);
+      setPage(nextPage);
+      setQuery(nextQuery);
+      setDebouncedQuery(nextDebounced);
+      return;
+    }
+
+    setType((prev) => (prev === nextType ? prev : nextType));
+    setPage((prev) => (prev === nextPage ? prev : nextPage));
+    setQuery((prev) => (prev === nextQuery ? prev : nextQuery));
+    setDebouncedQuery((prev) => (prev === nextDebounced ? prev : nextDebounced));
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!didInitFromUrl.current) return;
+
+    const sp = new URLSearchParams();
+    const q = debouncedQuery.trim();
+    if (q) sp.set("q", q);
+    if (type !== "all") sp.set("type", type);
+    if (page !== 1) sp.set("page", String(page));
+
+    const next = sp.toString();
+    const current = searchParams.toString();
+    if (next === current) return;
+
+    router.replace(next ? `${pathname}?${next}` : pathname);
+  }, [debouncedQuery, page, pathname, router, searchParams, type]);
 
   const canLoadMore = useMemo(() => {
     if (isLoading) return false;
@@ -294,7 +339,7 @@ export function VideosGridClient() {
                   void onSubmitSearch();
                 }
               }}
-              placeholder="Поиск: название, kpId (цифры) или IMDb (tt123...)"
+              placeholder="Поиск"
               className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
             />
 
@@ -368,10 +413,6 @@ export function VideosGridClient() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-balance text-2xl font-semibold tracking-tight text-[color:var(--foreground)]">
-            {isSearchMode ? "Результаты поиска" : "Все видео из Vibix"}
-          </h1>
-
           <div className="flex items-center gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-1">
             <button
               onClick={() => setType("all")}
@@ -408,22 +449,6 @@ export function VideosGridClient() {
             </button>
           </div>
         </div>
-
-        <p className="text-sm text-[color:var(--muted)]">
-          Показано: <span className="text-[color:var(--foreground)]">{items.length}</span>
-          {total != null ? (
-            <>
-              {" "}
-              <span className="opacity-60">•</span> всего {total}
-            </>
-          ) : null}
-          {lastPage ? (
-            <>
-              {" "}
-              <span className="opacity-60">•</span> стр. {page} / {lastPage}
-            </>
-          ) : null}
-        </p>
       </div>
 
       {error ? (
@@ -459,6 +484,57 @@ export function VideosGridClient() {
             >
               На главную
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {pagination.show ? (
+        <div className="mt-6 flex flex-col items-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1 || isLoading || !!error}
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
+            >
+              Назад
+            </button>
+
+            {pagination.pages.map((p, idx) => {
+              const prev = pagination.pages[idx - 1];
+              const showDots = prev != null && p - prev > 1;
+
+              return (
+                <div key={`top-${p}`} className="flex items-center gap-2">
+                  {showDots ? <span className="px-1 text-xs text-white/40">…</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => goToPage(p)}
+                    disabled={isLoading || !!error}
+                    className={`min-w-10 rounded-xl border px-4 py-2 text-xs transition disabled:opacity-40 ${
+                      p === page
+                        ? "border-[color:var(--border)] bg-[color:var(--accent)] text-black"
+                        : "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={(lastPage != null ? page >= lastPage : false) || isLoading || !!error}
+              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
+            >
+              Вперёд
+            </button>
+          </div>
+
+          <div className="text-xs text-[color:var(--muted)]">
+            Страница {page} из {lastPage}
           </div>
         </div>
       ) : null}
