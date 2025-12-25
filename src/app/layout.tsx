@@ -13,13 +13,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+function getMetadataBase(): URL {
+  const rawCandidates = [
+    process.env.SITE_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+    process.env.URL,
+    "http://localhost:3000",
+  ];
+
+  for (const raw of rawCandidates) {
+    const s = (raw ?? "").trim();
+    if (!s) continue;
+    try {
+      return new URL(s);
+    } catch {
+    }
+  }
+
+  return new URL("http://localhost:3000");
+}
+
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.SITE_URL ??
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined) ??
-      process.env.URL ??
-      "http://localhost:3000",
-  ),
+  metadataBase: getMetadataBase(),
   title: "Doramy Online - Смотри бесплатно фильмы",
   description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
   applicationName: "Doramy Online",
