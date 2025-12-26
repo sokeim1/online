@@ -28,7 +28,7 @@ function toLastMod(dateLike: string | null | undefined): string | null {
 
 async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 5;
+  const pagesPerSitemap = 20;
   const startPage = (part - 1) * pagesPerSitemap + 1;
   const endPage = part * pagesPerSitemap;
 
@@ -51,11 +51,12 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
   }
 
   const results = pages.length
-    ? await Promise.all(pages.map((page) => getVibixVideoLinks({ type: "movie", page, limit })))
+    ? await Promise.allSettled(pages.map((page) => getVibixVideoLinks({ type: "movie", page, limit })))
     : [];
 
-  for (const res of results) {
-    for (const v of res.data) {
+  for (const r of results) {
+    if (r.status !== "fulfilled") continue;
+    for (const v of r.value.data) {
       if (!v.kp_id) continue;
       urls.push({
         loc: `${baseUrl}/movie/${v.kp_id}`,
@@ -98,7 +99,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
     });
   }
 
-  const xml = await buildMoviesSitemap(siteUrl, part);
+  let xml: string;
+  try {
+    xml = await buildMoviesSitemap(siteUrl, part);
+  } catch {
+    xml = `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
+  }
   cache.set(cacheKey, { xml, expiresAt: now + 60 * 60 * 1000 });
 
   return new Response(xml, {
