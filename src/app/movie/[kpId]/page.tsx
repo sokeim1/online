@@ -7,7 +7,7 @@ import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
 
 export const runtime = "nodejs";
-export const revalidate = 60 * 60;
+export const revalidate = 3600;
 
 function pickTitle(v: {
   name: string;
