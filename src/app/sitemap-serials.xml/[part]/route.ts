@@ -28,7 +28,7 @@ function toLastMod(dateLike: string | null | undefined): string | null {
 
 async function buildSerialsSitemap(baseUrl: string, part: number): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 20;
+  const pagesPerSitemap = 10;
   const startPage = (part - 1) * pagesPerSitemap + 1;
   const endPage = part * pagesPerSitemap;
 
@@ -50,18 +50,22 @@ async function buildSerialsSitemap(baseUrl: string, part: number): Promise<strin
     pages.push(page);
   }
 
-  const results = pages.length
-    ? await Promise.allSettled(pages.map((page) => getVibixVideoLinks({ type: "serial", page, limit })))
-    : [];
+  const batchSize = 4;
+  for (let i = 0; i < pages.length; i += batchSize) {
+    const chunk = pages.slice(i, i + batchSize);
+    const results = await Promise.allSettled(
+      chunk.map((page) => getVibixVideoLinks({ type: "serial", page, limit })),
+    );
 
-  for (const r of results) {
-    if (r.status !== "fulfilled") continue;
-    for (const v of r.value.data) {
-      if (!v.kp_id) continue;
-      urls.push({
-        loc: `${baseUrl}/movie/${v.kp_id}`,
-        lastmod: toLastMod(v.uploaded_at) ?? undefined,
-      });
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      for (const v of r.value.data) {
+        if (!v.kp_id) continue;
+        urls.push({
+          loc: `${baseUrl}/movie/${v.kp_id}`,
+          lastmod: toLastMod(v.uploaded_at) ?? undefined,
+        });
+      }
     }
   }
 
