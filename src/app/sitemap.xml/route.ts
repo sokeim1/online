@@ -21,7 +21,7 @@ function escapeXml(s: string): string {
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 10;
+  const pagesPerSitemap = 20;
 
   const [firstMovies, firstSerials] = await Promise.all([
     getVibixVideoLinks({ type: "movie", page: 1, limit }),

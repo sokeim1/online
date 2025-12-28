@@ -28,7 +28,7 @@ function toLastMod(dateLike: string | null | undefined): string | null {
 
 async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 10;
+  const pagesPerSitemap = 20;
   const startPage = (part - 1) * pagesPerSitemap + 1;
   const endPage = part * pagesPerSitemap;
 
