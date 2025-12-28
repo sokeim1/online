@@ -11,6 +11,27 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
+function normalizeSiteUrl(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl.replace(/\/$/, "");
+  }
+
+  const host = url.hostname;
+  if (
+    host &&
+    !host.startsWith("www.") &&
+    !host.startsWith("localhost") &&
+    !host.startsWith("127.0.0.1") &&
+    !host.endsWith(".vercel.app")
+  ) {
+    url.hostname = `www.${host}`;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -29,7 +50,7 @@ function toLastMod(dateLike: string | null | undefined): string | null {
 
 async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 35;
+  const pagesPerSitemap = 25;
   const startPage = (part - 1) * pagesPerSitemap + 1;
   const endPage = part * pagesPerSitemap;
 
@@ -85,7 +106,7 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
 
 export async function GET(req: Request, ctx: { params: Promise<{ part: string }> }) {
   const origin = new URL(req.url).origin;
-  const siteUrl = (process.env.SITE_URL ?? origin).replace(/\/$/, "");
+  const siteUrl = normalizeSiteUrl(process.env.SITE_URL ?? origin);
 
   const { part: partRaw } = await ctx.params;
   const part = Number.parseInt(partRaw, 10);

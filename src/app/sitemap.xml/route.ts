@@ -10,6 +10,27 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
+function normalizeSiteUrl(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl.replace(/\/$/, "");
+  }
+
+  const host = url.hostname;
+  if (
+    host &&
+    !host.startsWith("www.") &&
+    !host.startsWith("localhost") &&
+    !host.startsWith("127.0.0.1") &&
+    !host.endsWith(".vercel.app")
+  ) {
+    url.hostname = `www.${host}`;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -21,7 +42,7 @@ function escapeXml(s: string): string {
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 35;
+  const pagesPerSitemap = 25;
 
   const firstVideos = await getVibixVideoLinks({ page: 1, limit });
   const lastVideosPage = firstVideos.meta?.last_page ?? 1;
@@ -47,7 +68,7 @@ async function buildSitemapIndex(baseUrl: string): Promise<string> {
 
 export async function GET(req: Request) {
   const origin = new URL(req.url).origin;
-  const siteUrl = (process.env.SITE_URL ?? origin).replace(/\/$/, "");
+  const siteUrl = normalizeSiteUrl(process.env.SITE_URL ?? origin);
 
   const cached = cache.get(siteUrl);
   const now = Date.now();
