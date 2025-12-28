@@ -29,13 +29,13 @@ function toLastMod(dateLike: string | null | undefined): string | null {
 
 async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 20;
+  const pagesPerSitemap = 35;
   const startPage = (part - 1) * pagesPerSitemap + 1;
   const endPage = part * pagesPerSitemap;
 
   const urls: Array<{ loc: string; lastmod?: string }> = [];
 
-  const first = await getVibixVideoLinks({ type: "movie", page: startPage, limit });
+  const first = await getVibixVideoLinks({ page: startPage, limit });
   for (const v of first.data) {
     if (!v.kp_id) continue;
     const title = v.name_rus ?? v.name_eng ?? v.name;
@@ -56,7 +56,7 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
   for (let i = 0; i < pages.length; i += batchSize) {
     const chunk = pages.slice(i, i + batchSize);
     const results = await Promise.allSettled(
-      chunk.map((page) => getVibixVideoLinks({ type: "movie", page, limit })),
+      chunk.map((page) => getVibixVideoLinks({ page, limit })),
     );
 
     for (const r of results) {
