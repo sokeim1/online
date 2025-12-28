@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
+import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
 
 export const runtime = "nodejs";
 export const revalidate = 3600;
@@ -21,9 +22,9 @@ function pickTitle(v: {
 export async function generateMetadata(
   { params }: { params: Promise<{ kpId: string }> },
 ): Promise<Metadata> {
-  const { kpId } = await params;
-  const id = Number(kpId);
-  if (!Number.isFinite(id)) {
+  const { kpId: kpIdRaw } = await params;
+  const id = parseKpIdFromMovieParam(kpIdRaw);
+  if (!id) {
     return { title: "Doramy Online - Смотри бесплатно фильмы" };
   }
 
@@ -41,11 +42,13 @@ export async function generateMetadata(
       .filter(Boolean)
       .map((url) => ({ url: url as string }));
 
+    const canonical = movieSlugHtmlPath(id, title);
+
     return {
       title: fullTitle,
       description,
       alternates: {
-        canonical: `/movie/${id}`,
+        canonical,
       },
       openGraph: {
         title: fullTitle,
@@ -70,10 +73,10 @@ export default async function MoviePage({
 }: {
   params: Promise<{ kpId: string }>;
 }) {
-  const { kpId } = await params;
-  const id = Number(kpId);
+  const { kpId: kpIdRaw } = await params;
+  const id = parseKpIdFromMovieParam(kpIdRaw);
 
-  if (!Number.isFinite(id)) {
+  if (!id) {
     notFound();
   }
 
@@ -85,6 +88,11 @@ export default async function MoviePage({
   }
 
   const title = pickTitle(video);
+  const canonicalPath = movieSlugHtmlPath(id, title);
+  const canonicalParam = canonicalPath.replace(/^\/movie\//, "");
+  if (kpIdRaw !== canonicalParam) {
+    permanentRedirect(canonicalPath);
+  }
   const description = video.description_short ?? video.description ?? null;
   const posterSrc = proxyImageUrl(video.poster_url);
   const backdropSrc = proxyImageUrl(video.backdrop_url);

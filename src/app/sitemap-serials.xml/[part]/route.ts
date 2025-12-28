@@ -1,4 +1,5 @@
 import { getVibixVideoLinks } from "@/lib/vibix";
+import { movieSlugHtmlPath } from "@/lib/movieUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +38,9 @@ async function buildSerialsSitemap(baseUrl: string, part: number): Promise<strin
   const first = await getVibixVideoLinks({ type: "serial", page: startPage, limit });
   for (const v of first.data) {
     if (!v.kp_id) continue;
+    const title = v.name_rus ?? v.name_eng ?? v.name;
     urls.push({
-      loc: `${baseUrl}/movie/${v.kp_id}`,
+      loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
       lastmod: toLastMod(v.uploaded_at) ?? undefined,
     });
   }
@@ -61,8 +63,9 @@ async function buildSerialsSitemap(baseUrl: string, part: number): Promise<strin
       if (r.status !== "fulfilled") continue;
       for (const v of r.value.data) {
         if (!v.kp_id) continue;
+        const title = v.name_rus ?? v.name_eng ?? v.name;
         urls.push({
-          loc: `${baseUrl}/movie/${v.kp_id}`,
+          loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
           lastmod: toLastMod(v.uploaded_at) ?? undefined,
         });
       }

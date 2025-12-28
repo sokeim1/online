@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import type { VibixVideoLink, VibixVideoType, VibixVideoLinksResponse } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
+import { movieSlugHtmlPath } from "@/lib/movieUrl";
 
 import { VideoCard } from "@/components/VideoCard";
 
@@ -119,7 +120,7 @@ export function VideosGridClient() {
     }
 
     if (/^\d+$/.test(q)) {
-      router.push(`/movie/${q}`);
+      router.push(movieSlugHtmlPath(Number(q), q));
       return;
     }
 
@@ -137,7 +138,7 @@ export function VideosGridClient() {
         if (!kpId) {
           throw new Error("У этого IMDb ID нет kp_id в Vibix");
         }
-        router.push(`/movie/${kpId}`);
+        router.push(movieSlugHtmlPath(kpId, String(kpId)));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       }
@@ -363,7 +364,7 @@ export function VideosGridClient() {
                           onMouseDown={(ev) => {
                             ev.preventDefault();
                             if (!s.kp_id) return;
-                            router.push(`/movie/${s.kp_id}`);
+                            router.push(movieSlugHtmlPath(s.kp_id, title));
                           }}
                           className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                         >

@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { VibixVideoLink } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
+import { movieSlugHtmlPath } from "@/lib/movieUrl";
 
 function pickTitle(v: VibixVideoLink): string {
   return v.name_rus ?? v.name_eng ?? v.name;
@@ -9,7 +10,7 @@ function pickTitle(v: VibixVideoLink): string {
 
 export function VideoCard({ video }: { video: VibixVideoLink }) {
   const title = pickTitle(video);
-  const href = video.kp_id ? `/movie/${video.kp_id}` : undefined;
+  const href = video.kp_id ? movieSlugHtmlPath(video.kp_id, title) : undefined;
   const posterSrc = proxyImageUrl(video.poster_url);
 
   const card = (
