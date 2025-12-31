@@ -14,9 +14,8 @@ function pickTitle(v: {
   name: string;
   name_rus: string | null;
   name_eng: string | null;
-  name_original: string | null;
 }): string {
-  return v.name_rus ?? v.name_eng ?? v.name_original ?? v.name;
+  return v.name_rus ?? v.name_eng ?? v.name;
 }
 
 export async function generateMetadata(
