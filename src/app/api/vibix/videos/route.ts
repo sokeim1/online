@@ -1,9 +1,63 @@
 import { NextResponse } from "next/server";
 
-import { getVibixVideoLinks } from "@/lib/vibix";
+import { getVibixVideoByKpId, getVibixVideoLinks } from "@/lib/vibix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+type EnrichEntry = {
+  ts: number;
+  genre: string[] | null;
+  country: string[] | null;
+};
+
+const enrichCache = new Map<number, EnrichEntry>();
+
+async function enrichLinks<T extends { kp_id: number | null; genre?: string[] | null; country?: string[] | null }>(
+  items: T[],
+): Promise<T[]> {
+  const ttlMs = 6 * 60 * 60 * 1000;
+  const now = Date.now();
+  const out = items.slice();
+
+  const need = out
+    .map((v, idx) => ({ v, idx }))
+    .filter(({ v }) => v.kp_id && (v.genre == null || v.country == null));
+
+  const concurrency = 5;
+  for (let i = 0; i < need.length; i += concurrency) {
+    const chunk = need.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(async ({ v }) => {
+        const kpId = v.kp_id as number;
+        const cached = enrichCache.get(kpId);
+        if (cached && now - cached.ts < ttlMs) return cached;
+
+        const d = await getVibixVideoByKpId(kpId);
+        const entry: EnrichEntry = {
+          ts: now,
+          genre: d.genre ?? null,
+          country: d.country ?? null,
+        };
+        enrichCache.set(kpId, entry);
+        return entry;
+      }),
+    );
+
+    for (let j = 0; j < chunk.length; j += 1) {
+      const { idx } = chunk[j];
+      const r = results[j];
+      if (r.status !== "fulfilled") continue;
+      out[idx] = {
+        ...out[idx],
+        genre: out[idx].genre ?? r.value.genre,
+        country: out[idx].country ?? r.value.country,
+      };
+    }
+  }
+
+  return out;
+}
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -21,6 +75,8 @@ export async function GET(req: Request) {
       page: page && Number.isFinite(page) ? page : undefined,
       limit: limit && Number.isFinite(limit) ? limit : undefined,
     });
+
+    data.data = await enrichLinks(data.data);
 
     return NextResponse.json(data);
   } catch (e) {

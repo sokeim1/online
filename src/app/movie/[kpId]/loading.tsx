@@ -5,7 +5,10 @@ export default function Loading() {
     <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
       <Header />
       <div className="mx-auto w-full max-w-6xl px-4 pb-20 pt-8">
-        <div className="h-5 w-40 animate-pulse rounded bg-[color:var(--surface)]" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="h-5 w-40 animate-pulse rounded bg-[color:var(--surface)]" />
+          <div className="h-12 w-full animate-pulse rounded-2xl bg-[color:var(--surface)] sm:w-[520px]" />
+        </div>
         <div className="mt-6 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)]">
           <div className="h-56 w-full animate-pulse bg-[color:var(--surface-hover)] sm:h-72" />
           <div className="-mt-24 flex gap-6 px-5 pb-6 sm:-mt-28 sm:px-6">

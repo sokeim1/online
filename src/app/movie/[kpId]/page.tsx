@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
+import { MovieSearchBar } from "@/components/MovieSearchBar";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
 import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
@@ -130,11 +131,17 @@ export default async function MoviePage({
       <Header />
 
       <main className="mx-auto w-full max-w-6xl px-4 pb-14 pt-5 sm:pb-20 sm:pt-8">
-        <Link href="/" className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)]">
-          ← Назад к каталогу
-        </Link>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/" className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)]">
+            ← Назад к каталогу
+          </Link>
 
-        <div className="mt-5 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:mt-6">
+          <div className="w-full sm:w-[520px]">
+            <MovieSearchBar />
+          </div>
+        </div>
+
+        <div className="mt-4 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:mt-6">
           <div className="relative">
             <div className="h-56 w-full bg-gradient-to-br from-[color:var(--accent-soft)] via-transparent to-transparent sm:h-72">
               {backdropSrc ? (

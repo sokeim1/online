@@ -12,6 +12,8 @@ export function VideoCard({ video }: { video: VibixVideoLink }) {
   const title = pickTitle(video);
   const href = video.kp_id ? movieSlugHtmlPath(video.kp_id, title) : undefined;
   const posterSrc = proxyImageUrl(video.poster_url);
+  const country = video.country?.filter(Boolean)?.[0] ?? null;
+  const genres = (video.genre ?? []).filter(Boolean).slice(0, 2);
 
   const card = (
     <div className="group relative overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
@@ -32,17 +34,20 @@ export function VideoCard({ video }: { video: VibixVideoLink }) {
       </div>
 
       <div className="absolute inset-x-0 bottom-0 p-3">
-        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-28 bg-black/35 backdrop-blur-md" />
+        <div className="absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
         <div className="relative">
-          <div className="line-clamp-2 text-sm font-semibold text-white">{title}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/70">
+          <div className="line-clamp-2 text-sm font-semibold text-white drop-shadow">{title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-white/80">
             {video.year ? <span>{video.year}</span> : null}
-            <span className="rounded-md border border-white/15 bg-black/30 px-2 py-0.5">
-              {video.type}
-            </span>
-            <span className="rounded-md border border-white/15 bg-black/30 px-2 py-0.5">
-              {video.quality}
-            </span>
+            {country ? (
+              <span className="rounded-md border border-white/15 bg-black/35 px-2 py-0.5">{country}</span>
+            ) : null}
+            {genres.map((g) => (
+              <span key={g} className="rounded-md border border-white/15 bg-black/35 px-2 py-0.5">
+                {g}
+              </span>
+            ))}
           </div>
         </div>
       </div>

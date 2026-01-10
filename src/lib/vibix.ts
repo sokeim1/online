@@ -13,6 +13,8 @@ export type VibixVideoLink = {
   poster_url: string | null;
   quality: string;
   uploaded_at: string;
+  genre?: string[] | null;
+  country?: string[] | null;
 };
 
 export type VibixPaginationLinks = {

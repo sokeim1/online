@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getVibixVideoLinks, searchVibixVideosByName } from "@/lib/vibix";
+import { getVibixVideoByKpId, getVibixVideoLinks, searchVibixVideosByName } from "@/lib/vibix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 type CatalogItem = {
   id: number;
   kp_id: number | null;
+  imdb_id: string | null;
   type: "movie" | "serial";
   year: number | null;
   quality: string;
@@ -17,7 +18,62 @@ type CatalogItem = {
   name_eng: string | null;
   iframe_url: string;
   uploaded_at: string;
+  genre?: string[] | null;
+  country?: string[] | null;
 };
+
+type EnrichEntry = {
+  ts: number;
+  genre: string[] | null;
+  country: string[] | null;
+};
+
+const enrichCache = new Map<number, EnrichEntry>();
+
+async function enrichLinks<
+  T extends { kp_id: number | null; genre?: string[] | null; country?: string[] | null },
+>(items: T[]): Promise<T[]> {
+  const ttlMs = 6 * 60 * 60 * 1000;
+  const now = Date.now();
+  const out = items.slice();
+  const need = out
+    .map((v, idx) => ({ v, idx }))
+    .filter(({ v }) => v.kp_id && (v.genre == null || v.country == null));
+
+  const concurrency = 5;
+  for (let i = 0; i < need.length; i += concurrency) {
+    const chunk = need.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(async ({ v }) => {
+        const kpId = v.kp_id as number;
+        const cached = enrichCache.get(kpId);
+        if (cached && now - cached.ts < ttlMs) return cached;
+
+        const d = await getVibixVideoByKpId(kpId);
+        const entry: EnrichEntry = {
+          ts: now,
+          genre: d.genre ?? null,
+          country: d.country ?? null,
+        };
+        enrichCache.set(kpId, entry);
+        return entry;
+      }),
+    );
+
+    for (let j = 0; j < chunk.length; j += 1) {
+      const { idx } = chunk[j];
+      const r = results[j];
+      if (r.status !== "fulfilled") continue;
+      out[idx] = {
+        ...out[idx],
+        genre: out[idx].genre ?? r.value.genre,
+        country: out[idx].country ?? r.value.country,
+      };
+    }
+  }
+
+  return out;
+}
 
 type FuzzyCacheEntry = {
   ts: number;
@@ -158,6 +214,7 @@ export async function GET(req: Request) {
     });
 
     if (data.data.length > 0) {
+      data.data = await enrichLinks(data.data);
       return NextResponse.json(data);
     }
 
@@ -190,8 +247,10 @@ export async function GET(req: Request) {
     const to = total ? Math.min(current_page * safeLimit, total) : null;
     const pageItems = matches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
 
+    const enriched = await enrichLinks(pageItems);
+
     return NextResponse.json({
-      data: pageItems,
+      data: enriched,
       links: { first: "", last: "", prev: null, next: null },
       meta: {
         current_page,

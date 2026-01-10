@@ -19,31 +19,43 @@ function parseResponse(data: unknown): VibixVideoLinksResponse {
   return data as VibixVideoLinksResponse;
 }
 
-export function VideosGridClient() {
+type VideosGridClientProps = {
+  initialQ?: string;
+  initialType?: string;
+  initialPage?: string;
+};
+
+export function VideosGridClient({ initialQ, initialType, initialPage }: VideosGridClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didInitFromUrl = useRef(false);
 
-  const [type, setType] = useState<TypeFilter>("all");
+  const [type, setType] = useState<TypeFilter>(() => {
+    const t = (initialType ?? "all").trim();
+    return t === "movie" || t === "serial" || t === "all" ? t : "all";
+  });
   const [items, setItems] = useState<VibixVideoLink[]>([]);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState(() => {
+    const p = initialPage ? Number.parseInt(initialPage, 10) : 1;
+    return Number.isFinite(p) && p > 0 ? p : 1;
+  });
   const [lastPage, setLastPage] = useState<number | null>(null);
   const [total, setTotal] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [homeNonce, setHomeNonce] = useState(0);
 
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [query, setQuery] = useState(() => initialQ ?? "");
+  const [debouncedQuery, setDebouncedQuery] = useState(() => (initialQ ?? "").trim());
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [suggestions, setSuggestions] = useState<VibixVideoLink[]>([]);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
 
   useEffect(() => {
-    const q = searchParams.get("q") ?? "";
-    const t = searchParams.get("type") ?? "all";
-    const pRaw = searchParams.get("page");
+    const q = searchParams.get("q") ?? searchParams.get("name") ?? initialQ ?? "";
+    const t = searchParams.get("type") ?? initialType ?? "all";
+    const pRaw = searchParams.get("page") ?? initialPage ?? null;
     const p = pRaw ? Number.parseInt(pRaw, 10) : 1;
 
     const nextType: TypeFilter = t === "movie" || t === "serial" || t === "all" ? t : "all";

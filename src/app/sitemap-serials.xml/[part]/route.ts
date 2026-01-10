@@ -11,6 +11,27 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 
+function normalizeSiteUrl(rawUrl: string): string {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return rawUrl.replace(/\/$/, "");
+  }
+
+  const host = url.hostname;
+  if (
+    host &&
+    !host.startsWith("www.") &&
+    !host.startsWith("localhost") &&
+    !host.startsWith("127.0.0.1") &&
+    !host.endsWith(".vercel.app")
+  ) {
+    url.hostname = `www.${host}`;
+  }
+  return url.toString().replace(/\/$/, "");
+}
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -85,7 +106,7 @@ async function buildSerialsSitemap(baseUrl: string, part: number): Promise<strin
 
 export async function GET(req: Request, ctx: { params: Promise<{ part: string }> }) {
   const origin = new URL(req.url).origin;
-  const siteUrl = (process.env.SITE_URL ?? origin).replace(/\/$/, "");
+  const siteUrl = normalizeSiteUrl(process.env.SITE_URL ?? origin);
 
   const { part: partRaw } = await ctx.params;
   const part = Number.parseInt(partRaw, 10);
@@ -106,19 +127,33 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
     });
   }
 
-  let xml: string;
   try {
-    xml = await buildSerialsSitemap(siteUrl, part);
+    const xml = await buildSerialsSitemap(siteUrl, part);
+    cache.set(cacheKey, { xml, expiresAt: now + 60 * 60 * 1000 });
+    return new Response(xml, {
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=0, s-maxage=86400",
+      },
+    });
   } catch {
-    xml = `<?xml version="1.0" encoding="UTF-8"?>` +
-      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
-  }
-  cache.set(cacheKey, { xml, expiresAt: now + 60 * 60 * 1000 });
+    if (cached) {
+      return new Response(cached.xml, {
+        headers: {
+          "Content-Type": "application/xml; charset=utf-8",
+          "Cache-Control": "public, max-age=0, s-maxage=86400",
+        },
+      });
+    }
 
-  return new Response(xml, {
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, s-maxage=86400",
-    },
-  });
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
+    return new Response(xml, {
+      status: 503,
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 }

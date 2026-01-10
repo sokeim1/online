@@ -42,17 +42,25 @@ function escapeXml(s: string): string {
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
   const limit = 100;
-  const pagesPerSitemap = 25;
+  const moviesPagesPerSitemap = 35;
+  const serialsPagesPerSitemap = 20;
 
-  const firstVideos = await getVibixVideoLinks({ page: 1, limit });
-  const lastVideosPage = firstVideos.meta?.last_page ?? 1;
-  const totalVideosSitemaps = Math.max(1, Math.ceil(lastVideosPage / pagesPerSitemap));
+  const firstMovies = await getVibixVideoLinks({ type: "movie", page: 1, limit });
+  const lastMoviesPage = firstMovies.meta?.last_page ?? 1;
+  const totalMoviesSitemaps = Math.max(1, Math.ceil(lastMoviesPage / moviesPagesPerSitemap));
+
+  const firstSerials = await getVibixVideoLinks({ type: "serial", page: 1, limit });
+  const lastSerialsPage = firstSerials.meta?.last_page ?? 1;
+  const totalSerialsSitemaps = Math.max(1, Math.ceil(lastSerialsPage / serialsPagesPerSitemap));
   const lastmod = new Date().toISOString();
 
   const sitemaps: Array<{ loc: string; lastmod?: string }> = [];
   sitemaps.push({ loc: `${baseUrl}/sitemap-static.xml`, lastmod });
-  for (let part = 1; part <= totalVideosSitemaps; part += 1) {
+  for (let part = 1; part <= totalMoviesSitemaps; part += 1) {
     sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
+  }
+  for (let part = 1; part <= totalSerialsSitemaps; part += 1) {
+    sitemaps.push({ loc: `${baseUrl}/sitemap-serials.xml/${part}`, lastmod });
   }
 
   const body = sitemaps
@@ -81,13 +89,33 @@ export async function GET(req: Request) {
     });
   }
 
-  const xml = await buildSitemapIndex(siteUrl);
-  cache.set(siteUrl, { xml, expiresAt: now + 60 * 60 * 1000 });
+  try {
+    const xml = await buildSitemapIndex(siteUrl);
+    cache.set(siteUrl, { xml, expiresAt: now + 60 * 60 * 1000 });
+    return new Response(xml, {
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=0, s-maxage=3600",
+      },
+    });
+  } catch {
+    if (cached) {
+      return new Response(cached.xml, {
+        headers: {
+          "Content-Type": "application/xml; charset=utf-8",
+          "Cache-Control": "public, max-age=0, s-maxage=3600",
+        },
+      });
+    }
 
-  return new Response(xml, {
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, s-maxage=3600",
-    },
-  });
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></sitemapindex>`;
+    return new Response(xml, {
+      status: 503,
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 }
