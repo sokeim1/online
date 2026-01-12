@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { getVibixVideoByKpId, getVibixVideoLinks, searchVibixVideosByName } from "@/lib/vibix";
+import {
+  getVibixSerialByKpId,
+  getVibixTags,
+  getVibixVideoByKpId,
+  getVibixVideoLinks,
+  searchVibixVideosByName,
+} from "@/lib/vibix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 type CatalogItem = {
   id: number;
@@ -18,6 +25,9 @@ type CatalogItem = {
   name_eng: string | null;
   iframe_url: string;
   uploaded_at: string;
+  kp_rating?: number | null;
+  imdb_rating?: number | null;
+  episodes_count?: number | null;
   genre?: string[] | null;
   country?: string[] | null;
 };
@@ -26,34 +36,68 @@ type EnrichEntry = {
   ts: number;
   genre: string[] | null;
   country: string[] | null;
+  kp_rating: number | null;
+  imdb_rating: number | null;
+  episodes_count: number | null;
 };
 
 const enrichCache = new Map<number, EnrichEntry>();
 
 async function enrichLinks<
-  T extends { kp_id: number | null; genre?: string[] | null; country?: string[] | null },
+  T extends {
+    kp_id: number | null;
+    type?: string;
+    genre?: string[] | null;
+    country?: string[] | null;
+    kp_rating?: number | null;
+    imdb_rating?: number | null;
+    episodes_count?: number | null;
+  },
 >(items: T[]): Promise<T[]> {
   const ttlMs = 6 * 60 * 60 * 1000;
   const now = Date.now();
   const out = items.slice();
   const need = out
     .map((v, idx) => ({ v, idx }))
-    .filter(({ v }) => v.kp_id && (v.genre == null || v.country == null));
+    .filter(
+      ({ v }) =>
+        v.kp_id &&
+        (v.genre == null ||
+          v.country == null ||
+          v.kp_rating == null ||
+          v.imdb_rating == null ||
+          (v.type === "serial" && v.episodes_count == null)),
+    );
 
-  const concurrency = 5;
+  const concurrency = 8;
   for (let i = 0; i < need.length; i += concurrency) {
     const chunk = need.slice(i, i + concurrency);
     const results = await Promise.allSettled(
       chunk.map(async ({ v }) => {
         const kpId = v.kp_id as number;
         const cached = enrichCache.get(kpId);
-        if (cached && now - cached.ts < ttlMs) return cached;
+        if (cached && now - cached.ts < ttlMs) {
+          if (v.type !== "serial" || cached.episodes_count != null) {
+            return cached;
+          }
+        }
 
         const d = await getVibixVideoByKpId(kpId);
+
+        let episodesCount: number | null = null;
+        if (v.type === "serial") {
+          const si = await getVibixSerialByKpId(kpId).catch(() => null);
+          if (si?.seasons?.length) {
+            episodesCount = si.seasons.reduce((acc, s) => acc + (s.series?.length ?? 0), 0);
+          }
+        }
         const entry: EnrichEntry = {
           ts: now,
           genre: d.genre ?? null,
           country: d.country ?? null,
+          kp_rating: d.kp_rating ?? null,
+          imdb_rating: d.imdb_rating ?? null,
+          episodes_count: episodesCount,
         };
         enrichCache.set(kpId, entry);
         return entry;
@@ -68,6 +112,9 @@ async function enrichLinks<
         ...out[idx],
         genre: out[idx].genre ?? r.value.genre,
         country: out[idx].country ?? r.value.country,
+        kp_rating: out[idx].kp_rating ?? r.value.kp_rating,
+        imdb_rating: out[idx].imdb_rating ?? r.value.imdb_rating,
+        episodes_count: out[idx].episodes_count ?? r.value.episodes_count,
       };
     }
   }
@@ -93,6 +140,37 @@ function normalizeText(input: string): string {
     .trim();
 }
 
+type TagsCacheEntry = {
+  ts: number;
+  tags: Awaited<ReturnType<typeof getVibixTags>>;
+};
+
+let tagsCache: TagsCacheEntry | null = null;
+
+async function getTags(): Promise<TagsCacheEntry> {
+  const now = Date.now();
+  const ttlMs = 6 * 60 * 60 * 1000;
+  if (tagsCache && now - tagsCache.ts < ttlMs) return tagsCache;
+  const tags = await getVibixTags();
+  tagsCache = { ts: now, tags };
+  return tagsCache;
+}
+
+function resolveTagId(tags: TagsCacheEntry["tags"], raw: string): number | null {
+  const q = normalizeText(raw);
+  if (!q) return null;
+  const qWords = q.split(/\s+/).filter(Boolean);
+  const exact = tags.find((t) => normalizeText(t.name ?? t.name_eng ?? t.code ?? "") === q);
+  if (exact) return exact.id;
+  const loose = tags.find((t) => {
+    const hay = normalizeText(t.name ?? t.name_eng ?? t.code ?? "");
+    if (!hay) return false;
+    if (hay.includes(q) || q.includes(hay)) return true;
+    return qWords.length > 0 && qWords.every((w) => hay.includes(w));
+  });
+  return loose?.id ?? null;
+}
+
 function pickHaystack(v: CatalogItem): string {
   return normalizeText([v.name_rus, v.name_eng, v.name].filter(Boolean).join(" "));
 }
@@ -105,7 +183,17 @@ function isMatch(haystack: string, rawQuery: string): { ok: boolean; score: numb
   let score = 0;
   for (const w of words) {
     const idx = haystack.indexOf(w);
-    if (idx === -1) return { ok: false, score: 0 };
+    if (idx === -1) {
+      // allow weak prefix match for словоформы (например: "новый" -> "новинка")
+      if (w.length >= 4) {
+        const pref3 = w.slice(0, 3);
+        const pIdx = haystack.indexOf(pref3);
+        if (pIdx === -1) return { ok: false, score: 0 };
+        score += 1;
+        continue;
+      }
+      return { ok: false, score: 0 };
+    }
     score += w.length >= 4 ? 3 : 1;
     if (idx === 0) score += 1;
   }
@@ -139,7 +227,11 @@ function rankAndDedupe(items: CatalogItem[], rawQuery: string): CatalogItem[] {
   return scored.map((x) => x.v);
 }
 
-async function fuzzySearchPaged(rawQuery: string, targetCount: number): Promise<FuzzyCacheEntry> {
+async function fuzzySearchPaged(
+  rawQuery: string,
+  targetCount: number,
+  maxPagesPerRequest: number,
+): Promise<FuzzyCacheEntry> {
   const key = normalizeText(rawQuery);
   const now = Date.now();
   const ttlMs = 60 * 60 * 1000;
@@ -153,17 +245,16 @@ async function fuzzySearchPaged(rawQuery: string, targetCount: number): Promise<
   if (existing && now - existing.ts < ttlMs) {
     entry = existing;
   } else {
-    const first = await getVibixVideoLinks({ page: 1, limit: 100 });
+    const first = await getVibixVideoLinks({ page: 1, limit: 20 });
     entry = {
       ts: now,
       scannedUpToPage: 0,
       lastPage: first.meta?.last_page ?? 1,
-      perPage: first.meta?.per_page ?? 100,
+      perPage: first.meta?.per_page ?? 20,
       matches: [],
     };
   }
 
-  const maxPagesPerRequest = 25;
   let scannedThisRequest = 0;
 
   for (
@@ -171,7 +262,7 @@ async function fuzzySearchPaged(rawQuery: string, targetCount: number): Promise<
     p <= entry.lastPage && scannedThisRequest < maxPagesPerRequest && entry.matches.length < targetCount;
     p += 1
   ) {
-    const resp = await getVibixVideoLinks({ page: p, limit: 100 });
+    const resp = await getVibixVideoLinks({ page: p, limit: 20 });
     entry.lastPage = resp.meta?.last_page ?? entry.lastPage;
     entry.perPage = resp.meta?.per_page ?? entry.perPage;
 
@@ -192,6 +283,7 @@ export async function GET(req: Request) {
   const name = (searchParams.get("name") ?? "").trim();
   const pageRaw = searchParams.get("page") ?? undefined;
   const limitRaw = searchParams.get("limit") ?? undefined;
+  const suggest = searchParams.get("suggest") === "1";
 
   if (!name) {
     return NextResponse.json(
@@ -204,21 +296,85 @@ export async function GET(req: Request) {
   const limit = limitRaw ? Number(limitRaw) : undefined;
 
   const safePage = page && Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
-  const safeLimit = limit && Number.isFinite(limit) ? Math.max(1, Math.min(100, Math.floor(limit))) : 30;
+  const safeLimit = 20;
 
   try {
-    const data = await searchVibixVideosByName({
-      name,
-      page: safePage,
-      limit: safeLimit,
-    });
+    const qLen = name.trim().length;
 
-    if (data.data.length > 0) {
-      data.data = await enrichLinks(data.data);
-      return NextResponse.json(data);
+    // 1) Try Vibix direct search for len>=3.
+    // For suggestions we still try it first, because fuzzy scanning may miss titles far in the catalog.
+    if (qLen >= 3) {
+      try {
+        const direct = await searchVibixVideosByName({
+          name,
+          page: safePage,
+          limit: safeLimit,
+        });
+
+        if (direct.data.length > 0) {
+          direct.data = await enrichLinks(direct.data);
+          const res = NextResponse.json(direct);
+          res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+          return res;
+        }
+      } catch {
+        // ignore and continue to fallback
+      }
     }
 
-    if (name.trim().length < 3) {
+    // 2) Keyword search by tags (e.g. "новый" -> tag "Новинка")
+    // Use it for normal searches (not for suggestions).
+    if (!suggest && qLen >= 2) {
+      const tc = await getTags().catch(() => null);
+      const tagId = tc ? resolveTagId(tc.tags, name) : null;
+      if (tagId) {
+        const tagged = await getVibixVideoLinks({
+          page: safePage,
+          limit: safeLimit,
+          tagIds: [tagId],
+        });
+        tagged.data = (await enrichLinks(tagged.data)).filter((v) => v.kp_id != null);
+        const res = NextResponse.json(tagged);
+        res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+        return res;
+      }
+    }
+
+    const targetCount = suggest ? safeLimit * 2 : safePage * safeLimit;
+    const maxPages = suggest ? 60 : 220;
+    const entry = await fuzzySearchPaged(name, targetCount, maxPages);
+    const matches = entry.matches;
+    const total = matches.length;
+    const last_page = Math.max(1, Math.ceil(total / safeLimit));
+    const current_page = Math.min(safePage, last_page);
+    const from = total ? (current_page - 1) * safeLimit + 1 : null;
+    const to = total ? Math.min(current_page * safeLimit, total) : null;
+    const pageItems = matches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
+
+    const enriched = await enrichLinks(pageItems);
+
+    const res = NextResponse.json({
+      data: enriched,
+      links: { first: "", last: "", prev: null, next: null },
+      meta: {
+        current_page,
+        from,
+        last_page,
+        links: [],
+        path: "",
+        per_page: safeLimit,
+        to,
+        total,
+      },
+      success: true,
+      message: "",
+    });
+    res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+    return res;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+
+    if (message.includes(" 404") || message.includes("404:")) {
       return NextResponse.json({
         data: [],
         links: { first: "", last: "", prev: null, next: null },
@@ -237,56 +393,7 @@ export async function GET(req: Request) {
       });
     }
 
-    const targetCount = safePage * safeLimit;
-    const entry = await fuzzySearchPaged(name, targetCount);
-    const matches = entry.matches;
-    const total = matches.length;
-    const last_page = Math.max(1, Math.ceil(total / safeLimit));
-    const current_page = Math.min(safePage, last_page);
-    const from = total ? (current_page - 1) * safeLimit + 1 : null;
-    const to = total ? Math.min(current_page * safeLimit, total) : null;
-    const pageItems = matches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
-
-    const enriched = await enrichLinks(pageItems);
-
-    return NextResponse.json({
-      data: enriched,
-      links: { first: "", last: "", prev: null, next: null },
-      meta: {
-        current_page,
-        from,
-        last_page,
-        links: [],
-        path: "",
-        per_page: safeLimit,
-        to,
-        total,
-      },
-      success: true,
-      message: "",
-    });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-
-    if (message.includes(" 404") || message.includes("404:")) {
-      return NextResponse.json({
-        data: [],
-        links: { first: "", last: "", prev: null, next: null },
-        meta: {
-          current_page: 1,
-          from: null,
-          last_page: 1,
-          links: [],
-          path: "",
-          per_page: limit && Number.isFinite(limit) ? limit : 30,
-          to: null,
-          total: 0,
-        },
-        success: true,
-        message: "",
-      });
-    }
-
+    // In case of any unexpected error, still return empty success payload.
     return NextResponse.json({
       data: [],
       links: { first: "", last: "", prev: null, next: null },
@@ -301,7 +408,7 @@ export async function GET(req: Request) {
         total: 0,
       },
       success: true,
-      message: "",
+      message,
     });
   }
 }

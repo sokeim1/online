@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Doramy Online",
     short_name: "Doramy",
-    description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+    description: "Смотри бесплатно видео и сериалы онлайн на Doramy Online",
     start_url: "/",
     display: "standalone",
     background_color: "#0b0f0c",

@@ -9,6 +9,9 @@ export type VibixVideoLink = {
   year: number | null;
   kp_id: number | null;
   imdb_id: string | null;
+  kp_rating?: number | null;
+  imdb_rating?: number | null;
+  episodes_count?: number | null;
   iframe_url: string;
   poster_url: string | null;
   quality: string;
@@ -103,6 +106,13 @@ export type VibixSerialInfo = {
   seasons: VibixSerialSeason[] | null;
 };
 
+export type VibixTaxonomyItem = {
+  id: number;
+  name: string | null;
+  name_eng?: string | null;
+  code?: string | null;
+};
+
 function getEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -122,9 +132,17 @@ export function getVibixApiKey(): string {
 export async function vibixFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${getVibixBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
 
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isGetLike = method === "GET" || method === "HEAD";
+
   const res = await fetch(url, {
     ...init,
-    cache: init?.cache ?? "no-store",
+    cache: init?.cache ?? (isGetLike ? "force-cache" : "no-store"),
+    next: isGetLike
+      ? {
+          revalidate: 60 * 60,
+        }
+      : undefined,
     headers: {
       ...(init?.headers ?? {}),
       Authorization: `Bearer ${getVibixApiKey()}`,
@@ -144,6 +162,12 @@ export type VibixVideosLinksQuery = {
   type?: VibixVideoType;
   page?: number;
   limit?: number;
+  categoryIds?: number[];
+  years?: number[];
+  genreIds?: number[];
+  countryIds?: number[];
+  tagIds?: number[];
+  voiceoverIds?: number[];
 };
 
 export async function getVibixVideoLinks(query: VibixVideosLinksQuery): Promise<VibixVideoLinksResponse> {
@@ -152,8 +176,30 @@ export async function getVibixVideoLinks(query: VibixVideosLinksQuery): Promise<
   if (query.page) sp.set("page", String(query.page));
   if (query.limit) sp.set("limit", String(query.limit));
 
+  (query.categoryIds ?? []).forEach((id) => sp.append("category[]", String(id)));
+  (query.years ?? []).forEach((y) => sp.append("year[]", String(y)));
+  (query.genreIds ?? []).forEach((id) => sp.append("genre[]", String(id)));
+  (query.countryIds ?? []).forEach((id) => sp.append("country[]", String(id)));
+  (query.tagIds ?? []).forEach((id) => sp.append("tag[]", String(id)));
+  (query.voiceoverIds ?? []).forEach((id) => sp.append("voiceover[]", String(id)));
+
   const qs = sp.toString();
   return vibixFetch<VibixVideoLinksResponse>(`/api/v1/publisher/videos/links${qs ? `?${qs}` : ""}`);
+}
+
+export async function getVibixGenres(): Promise<VibixTaxonomyItem[]> {
+  const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/genres");
+  return res.data ?? [];
+}
+
+export async function getVibixCountries(): Promise<VibixTaxonomyItem[]> {
+  const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/countries");
+  return res.data ?? [];
+}
+
+export async function getVibixTags(): Promise<VibixTaxonomyItem[]> {
+  const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/tags");
+  return res.data ?? [];
 }
 
 export type VibixVideosSearchQuery = {

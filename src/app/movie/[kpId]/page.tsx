@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
+import Image from "next/image";
 
 import { Header } from "@/components/Header";
 import { MovieSearchBar } from "@/components/MovieSearchBar";
+import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
 import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
@@ -25,7 +27,7 @@ export async function generateMetadata(
   const { kpId: kpIdRaw } = await params;
   const id = parseKpIdFromMovieParam(kpIdRaw);
   if (!id) {
-    return { title: "Doramy Online - Смотри бесплатно фильмы" };
+    return { title: "Doramy Online - Смотри бесплатно дорамы и сериалы" };
   }
 
   try {
@@ -36,7 +38,7 @@ export async function generateMetadata(
     const description =
       video.description_short ??
       video.description ??
-      "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online";
+      "Смотри бесплатно дорамы и сериалы онлайн на Doramy Online";
 
     const images = [video.backdrop_url, video.poster_url]
       .filter(Boolean)
@@ -64,7 +66,7 @@ export async function generateMetadata(
       },
     };
   } catch {
-    return { title: "Doramy Online - Смотри бесплатно фильмы" };
+    return { title: "Doramy Online - Смотри бесплатно дорамы и сериалы" };
   }
 }
 
@@ -96,6 +98,11 @@ export default async function MoviePage({
   const description = video.description_short ?? video.description ?? null;
   const posterSrc = proxyImageUrl(video.poster_url);
   const backdropSrc = proxyImageUrl(video.backdrop_url);
+  const primaryCountry = video.country?.filter(Boolean)?.[0] ?? null;
+  const primaryGenre = video.genre?.filter(Boolean)?.[0] ?? null;
+  const voiceoverNames = (video.voiceovers ?? []).map((v) => v.name).filter(Boolean);
+  const voiceoverText = voiceoverNames.slice(0, 3).join(", ");
+  const hasMoreVoiceovers = voiceoverNames.length > 3;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -121,6 +128,11 @@ export default async function MoviePage({
       ? await getVibixSerialByKpId(id).catch(() => null)
       : null;
 
+  const episodesCount =
+    video.type === "serial" && serialInfo?.seasons?.length
+      ? serialInfo.seasons.reduce((acc, s) => acc + (s.series?.length ?? 0), 0)
+      : null;
+
   return (
     <div className="min-h-screen bg-[color:var(--background)] text-[color:var(--foreground)]">
       <script
@@ -143,192 +155,122 @@ export default async function MoviePage({
 
         <div className="mt-4 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:mt-6">
           <div className="relative">
-            <div className="h-56 w-full bg-gradient-to-br from-[color:var(--accent-soft)] via-transparent to-transparent sm:h-72">
+            <div className="relative h-52 w-full bg-gradient-to-br from-[color:var(--accent-soft)] via-transparent to-transparent sm:h-64">
               {backdropSrc ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <Image
                   src={backdropSrc}
                   alt={title}
-                  className="h-full w-full object-cover opacity-70"
+                  fill
+                  unoptimized
+                  className="object-cover opacity-60"
+                  sizes="(min-width: 640px) 1024px, 100vw"
                 />
               ) : null}
             </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--background)] via-[color:var(--background)]/20 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--background)] via-[color:var(--background)]/30 to-transparent" />
+          </div>
 
-            <div className="relative -mt-24 flex flex-col gap-6 px-5 pb-6 sm:-mt-28 sm:flex-row sm:items-end sm:px-6">
-              <div className="w-40 shrink-0 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:w-56">
-                {posterSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={posterSrc}
-                    alt={title}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex aspect-[2/3] w-full items-center justify-center text-xs text-[color:var(--muted)]">
-                    Нет постера
-                  </div>
-                )}
+          <div className="px-5 pb-7 pt-5 sm:px-6 sm:pb-8 sm:pt-6">
+            <div className="grid gap-6 md:grid-cols-[260px_1fr]">
+              <div className="">
+                <div className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
+                  {posterSrc ? (
+                    <Image
+                      src={posterSrc}
+                      alt={title}
+                      width={520}
+                      height={780}
+                      unoptimized
+                      className="h-auto w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-[2/3] w-full items-center justify-center text-xs text-[color:var(--muted)]">
+                      Нет постера
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="flex-1 pb-2">
-                <h1 className="text-balance text-3xl font-semibold tracking-tight">
+              <div className="min-w-0">
+                <h1 className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
                   {title}
+                  {video.year ? ` (${video.year})` : ""}
                 </h1>
-                {video.name_original ? (
-                  <div className="mt-1 text-sm text-[color:var(--muted)]">{video.name_original}</div>
-                ) : null}
 
-                <div className="mt-4 flex flex-wrap items-center gap-2 text-sm text-[color:var(--muted)]">
-                  {video.year ? (
-                    <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
-                      {video.year}
-                    </span>
-                  ) : null}
-                  <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
-                    {video.type === "movie" ? "Фильм" : "Сериал"}
-                  </span>
-                  <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
-                    {video.quality}
-                  </span>
-                  {video.duration ? (
-                    <span className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-1">
-                      {video.duration} мин
-                    </span>
-                  ) : null}
+                <div className="mt-4 space-y-2 text-sm text-[color:var(--foreground)]">
+                  <div>
+                    <span className="text-[color:var(--muted)]">{primaryCountry ?? "—"}</span>
+                    {video.year ? <span className="text-[color:var(--muted)]">, {video.year}</span> : null}
+                  </div>
+
+                  <div className="text-[color:var(--muted)]">
+                    {video.genre?.length ? video.genre.join(", ") : "Жанры: —"}
+                  </div>
+
+                  <div className="grid gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4 text-sm">
+                    <div className="flex flex-wrap gap-x-8 gap-y-1">
+                      <div>
+                        <span className="text-[color:var(--muted)]">Время:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">
+                          {video.duration ? `${video.duration} мин` : "—"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[color:var(--muted)]">Тип:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">
+                          {video.type === "serial" ? "Сериал" : "Фильм"}
+                        </span>
+                      </div>
+                      {video.type === "serial" ? (
+                        <div>
+                          <span className="text-[color:var(--muted)]">Серий:</span>{" "}
+                          <span className="text-[color:var(--foreground)]">{episodesCount ?? "—"}</span>
+                        </div>
+                      ) : null}
+                      <div>
+                        <span className="text-[color:var(--muted)]">Качество:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">{video.quality}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-3 pt-2">
+                      <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
+                        <div className="text-[10px] text-[color:var(--muted)]">Кинопоиск</div>
+                        <div className="text-sm font-semibold text-[color:var(--foreground)]">{video.kp_rating ?? "—"}</div>
+                      </div>
+                      <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
+                        <div className="text-[10px] text-[color:var(--muted)]">IMDb</div>
+                        <div className="text-sm font-semibold text-[color:var(--foreground)]">{video.imdb_rating ?? "—"}</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 text-sm">
+                      <span className="text-[color:var(--muted)]">Озвучка:</span>{" "}
+                      <span className="text-[color:var(--foreground)]">
+                        {voiceoverText || "—"}
+                        {hasMoreVoiceovers ? "…" : ""}
+                      </span>
+                      <span className="ml-2 text-xs text-[color:var(--muted)]">Все</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3">
-                    <div className="text-xs text-[color:var(--muted)]">Кинопоиск</div>
-                    <div className="text-lg font-semibold">
-                      {video.kp_rating ?? "—"}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3">
-                    <div className="text-xs text-[color:var(--muted)]">IMDb</div>
-                    <div className="text-lg font-semibold">
-                      {video.imdb_rating ?? "—"}
-                    </div>
-                  </div>
+                <div className="mt-6">
+                  {video.description || video.description_short ? (
+                    <p className="whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
+                      {video.description ?? video.description_short}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-[color:var(--muted)]">Описание отсутствует.</p>
+                  )}
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="grid gap-6 px-5 pb-7 sm:gap-8 sm:px-6 sm:pb-8 lg:grid-cols-5">
-            <section className="lg:col-span-3">
-              <h2 className="text-lg font-semibold">Описание</h2>
-
-              {video.description || video.description_short ? (
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
-                  {video.description ?? video.description_short}
-                </p>
-              ) : (
-                <p className="mt-3 text-sm text-[color:var(--muted)]">Описание отсутствует.</p>
-              )}
-            </section>
-
-            <aside className="lg:col-span-2">
-              <h2 className="text-lg font-semibold">Детали</h2>
-
-              <div className="mt-3 space-y-4 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
-                {video.genre?.length ? (
-                  <div>
-                    <div className="text-xs text-[color:var(--muted)]">Жанры</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {video.genre.map((g) => (
-                        <span
-                          key={g}
-                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-                        >
-                          {g}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {video.country?.length ? (
-                  <div>
-                    <div className="text-xs text-[color:var(--muted)]">Страны</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {video.country.map((c) => (
-                        <span
-                          key={c}
-                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-                        >
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {video.voiceovers?.length ? (
-                  <div>
-                    <div className="text-xs text-[color:var(--muted)]">Озвучки</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {video.voiceovers.map((v) => (
-                        <span
-                          key={v.id}
-                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-                        >
-                          {v.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {video.tags?.length ? (
-                  <div>
-                    <div className="text-xs text-[color:var(--muted)]">Теги</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {video.tags.map((t) => (
-                        <span
-                          key={t.id}
-                          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-1 text-xs text-[color:var(--foreground)]"
-                        >
-                          {t.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
+            <section className="mt-8">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-semibold text-[color:var(--foreground)]">Просмотр</h2>
               </div>
-
-              {serialInfo?.seasons?.length ? (
-                <div className="mt-6">
-                  <h2 className="text-lg font-semibold">Сезоны и серии</h2>
-                  <div className="mt-3 space-y-3">
-                    {serialInfo.seasons.map((s) => (
-                      <details
-                        key={s.name}
-                        className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
-                      >
-                        <summary className="cursor-pointer text-sm font-medium text-[color:var(--foreground)]">
-                          {s.name}
-                        </summary>
-                        <div className="mt-3 grid grid-cols-1 gap-2">
-                          {s.series.map((ep) => (
-                            <div
-                              key={ep.id}
-                              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--muted)]"
-                            >
-                              {ep.name}
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </aside>
-
-            <section className="lg:col-span-5">
-              <h2 className="text-lg font-semibold">Просмотр</h2>
               <div className="mt-3 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
                 <div className="relative aspect-video w-full">
                   <iframe
@@ -341,6 +283,40 @@ export default async function MoviePage({
                 </div>
               </div>
             </section>
+
+            {serialInfo?.seasons?.length ? (
+              <section className="mt-8">
+                <details className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-[color:var(--foreground)]">
+                    Сезоны и серии
+                  </summary>
+                  <div className="mt-4 space-y-3">
+                    {serialInfo.seasons.map((s) => (
+                      <details
+                        key={s.name}
+                        className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
+                      >
+                        <summary className="cursor-pointer text-sm font-medium text-[color:var(--foreground)]">
+                          {s.name}
+                        </summary>
+                        <div className="mt-3 grid grid-cols-1 gap-2">
+                          {(s.series ?? []).map((ep) => (
+                            <div
+                              key={ep.id}
+                              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--muted)]"
+                            >
+                              {ep.name}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                </details>
+              </section>
+            ) : null}
+
+            <SimilarVideosScroller genre={primaryGenre} excludeKpId={id} title="Похожие" />
           </div>
         </div>
       </main>

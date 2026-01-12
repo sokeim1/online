@@ -87,7 +87,7 @@ export function Header() {
           </div>
           <div className="leading-tight">
             <div className="text-sm font-semibold text-[color:var(--foreground)]">Doramy Online</div>
-            <div className="hidden text-xs text-[color:var(--muted)] sm:block">Смотри бесплатно фильмы</div>
+            <div className="hidden text-xs text-[color:var(--muted)] sm:block">Смотри бесплатно дорамы и сериалы</div>
           </div>
         </button>
 

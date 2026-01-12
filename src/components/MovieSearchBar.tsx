@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 
 import type { VibixVideoLink, VibixVideoLinksResponse } from "@/lib/vibix";
@@ -74,7 +75,7 @@ export function MovieSearchBar({ className }: Props) {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2 || isDirectIdQuery) {
+    if (q.length < 1 || isDirectIdQuery) {
       setSuggestions([]);
       setIsSuggestionsLoading(false);
       return;
@@ -87,7 +88,8 @@ export function MovieSearchBar({ className }: Props) {
         const sp = new URLSearchParams();
         sp.set("name", q);
         sp.set("page", "1");
-        sp.set("limit", "7");
+        sp.set("suggest", "1");
+        // limit is omitted because Vibix /links may require a minimum (e.g. 20)
 
         const res = await fetch(`/api/vibix/videos/search?${sp.toString()}`, {
           signal: ac.signal,
@@ -97,7 +99,7 @@ export function MovieSearchBar({ className }: Props) {
           return;
         }
         const json = parseResponse(await res.json());
-        setSuggestions(json.data);
+        setSuggestions(json.data.filter((x) => x.kp_id != null).slice(0, 7));
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         setSuggestions([]);
@@ -133,7 +135,7 @@ export function MovieSearchBar({ className }: Props) {
             className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
           />
 
-          {isFocused && !isDirectIdQuery && query.trim().length >= 2 ? (
+          {isFocused && !isDirectIdQuery && query.trim().length >= 1 ? (
             <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--background)] shadow-xl">
               {isSuggestionsLoading ? (
                 <div className="p-3 text-xs text-[color:var(--muted)]">Поиск...</div>
@@ -158,11 +160,13 @@ export function MovieSearchBar({ className }: Props) {
                       >
                         <div className="h-12 w-9 overflow-hidden rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]">
                           {posterSrc ? (
-                            <img
+                            <Image
                               src={posterSrc}
                               alt={title}
+                              width={36}
+                              height={48}
+                              unoptimized
                               className="h-full w-full object-cover"
-                              loading="lazy"
                             />
                           ) : null}
                         </div>
@@ -170,7 +174,6 @@ export function MovieSearchBar({ className }: Props) {
                           <div className="truncate text-sm text-[color:var(--foreground)]">{title}</div>
                           <div className="mt-0.5 text-xs text-[color:var(--muted)]">
                             {s.year ?? "—"} • {s.type} • {s.quality}
-                            {!canOpen ? " • нет kp_id" : ""}
                           </div>
                         </div>
                       </button>

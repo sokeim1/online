@@ -47,14 +47,14 @@ function getMetadataBase(): URL {
 
 export const metadata: Metadata = {
   metadataBase: getMetadataBase(),
-  title: "Doramy Online - Смотри бесплатно фильмы",
-  description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+  title: "Doramy Online - Смотри бесплатно дорамы и сериалы",
+  description: "Смотри бесплатно дорамы и сериалы онлайн на Doramy Online",
   applicationName: "Doramy Online",
   manifest: "/manifest.webmanifest",
   keywords: [
     "дорамы онлайн",
     "doramy online",
-    "смотреть фильмы онлайн",
+    "смотреть видео онлайн",
     "смотреть сериалы онлайн",
     "корейские дорамы",
     "азиатские сериалы",
@@ -82,15 +82,15 @@ export const metadata: Metadata = {
   openGraph: {
     siteName: "Doramy Online",
     type: "website",
-    title: "Doramy Online - Смотри бесплатно фильмы",
-    description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+    title: "Doramy Online - Смотри бесплатно дорамы и сериалы",
+    description: "Смотри бесплатно дорамы и сериалы онлайн на Doramy Online",
     url: "/",
     images: [{ url: "/icon.svg" }],
   },
   twitter: {
     card: "summary",
-    title: "Doramy Online - Смотри бесплатно фильмы",
-    description: "Смотри бесплатно фильмы и сериалы онлайн на Doramy Online",
+    title: "Doramy Online - Смотри бесплатно дорамы и сериалы",
+    description: "Смотри бесплатно дорамы и сериалы онлайн на Doramy Online",
     images: ["/icon.svg"],
   },
 };
