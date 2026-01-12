@@ -98,6 +98,8 @@ export default async function MoviePage({
   const description = video.description_short ?? video.description ?? null;
   const posterSrc = proxyImageUrl(video.poster_url);
   const backdropSrc = proxyImageUrl(video.backdrop_url);
+  const canOptimizePoster = !!posterSrc && posterSrc.startsWith("/api/image-proxy");
+  const canOptimizeBackdrop = !!backdropSrc && backdropSrc.startsWith("/api/image-proxy");
   const primaryCountry = video.country?.filter(Boolean)?.[0] ?? null;
   const primaryGenre = video.genre?.filter(Boolean)?.[0] ?? null;
   const voiceoverNames = (video.voiceovers ?? []).map((v) => v.name).filter(Boolean);
@@ -161,7 +163,7 @@ export default async function MoviePage({
                   src={backdropSrc}
                   alt={title}
                   fill
-                  unoptimized
+                  unoptimized={!canOptimizeBackdrop}
                   className="object-cover opacity-60"
                   sizes="(min-width: 640px) 1024px, 100vw"
                 />
@@ -180,7 +182,7 @@ export default async function MoviePage({
                       alt={title}
                       width={520}
                       height={780}
-                      unoptimized
+                      unoptimized={!canOptimizePoster}
                       className="h-auto w-full object-cover"
                     />
                   ) : (
@@ -278,6 +280,7 @@ export default async function MoviePage({
                     className="absolute inset-0 h-full w-full"
                     allow="autoplay; fullscreen; picture-in-picture"
                     allowFullScreen
+                    loading="lazy"
                     title={title}
                   />
                 </div>

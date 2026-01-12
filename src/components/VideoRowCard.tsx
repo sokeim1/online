@@ -23,18 +23,19 @@ export function VideoRowCard({ video }: { video: VibixVideoLink }) {
   const country = video.country?.filter(Boolean)?.[0] ?? null;
   const genres = (video.genre ?? []).filter(Boolean).slice(0, 3);
   const episodes = video.type === "serial" ? video.episodes_count ?? null : null;
+  const canOptimizePoster = !!posterSrc && posterSrc.startsWith("/api/image-proxy");
 
   const content = (
     <div className="rounded-[28px] bg-[color:var(--surface)] p-[2px] shadow-[0_10px_35px_rgba(0,0,0,0.35)]">
-      <div className="group relative flex w-full gap-5 overflow-hidden rounded-[26px] border border-[color:var(--border)] bg-[color:var(--surface)] p-4 sm:p-5">
-        <div className="relative h-[170px] w-[125px] shrink-0 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] sm:h-[190px] sm:w-[140px]">
+      <div className="group relative flex w-full gap-4 overflow-hidden rounded-[26px] border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:gap-5 sm:p-5">
+        <div className="relative h-[150px] w-[110px] shrink-0 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] sm:h-[190px] sm:w-[140px]">
         {posterSrc ? (
           <Image
             src={posterSrc}
             alt={title}
             fill
-            sizes="140px"
-            unoptimized
+            sizes="(min-width: 640px) 140px, 110px"
+            unoptimized={!canOptimizePoster}
             className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
@@ -51,9 +52,9 @@ export function VideoRowCard({ video }: { video: VibixVideoLink }) {
       </div>
 
         <div className="min-w-0 flex-1">
-          <div className="text-base font-semibold text-[color:var(--foreground)] sm:text-lg">
-          {title}
-        </div>
+          <div className="break-words text-sm font-semibold leading-snug text-[color:var(--foreground)] sm:text-lg">
+            {title}
+          </div>
         {video.name_eng ? (
           <div className="mt-0.5 truncate text-xs text-[color:var(--muted)]">{video.name_eng}</div>
         ) : null}

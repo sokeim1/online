@@ -132,6 +132,8 @@ export function MovieSearchBar({ className }: Props) {
                 void onSubmitSearch();
               }
             }}
+            inputMode="search"
+            enterKeyHint="search"
             placeholder="Поиск"
             className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
           />

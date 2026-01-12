@@ -624,7 +624,7 @@ export function VideosGridClient({
                 <button
                   type="button"
                   onClick={() => featuredScrollerRef.current?.scrollBy({ left: -420, behavior: "smooth" })}
-                  className="absolute left-0 top-1/2 z-10 -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                  className="absolute left-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)] sm:block"
                   aria-label="Scroll left"
                 >
                   ◀
@@ -632,7 +632,7 @@ export function VideosGridClient({
                 <button
                   type="button"
                   onClick={() => featuredScrollerRef.current?.scrollBy({ left: 420, behavior: "smooth" })}
-                  className="absolute right-0 top-1/2 z-10 -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                  className="absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)] sm:block"
                   aria-label="Scroll right"
                 >
                   ▶
@@ -640,13 +640,14 @@ export function VideosGridClient({
 
                 <div
                   ref={featuredScrollerRef}
-                  className="overflow-x-auto px-10"
+                  className="overflow-x-auto sm:px-10"
                 >
                   <div className="flex w-max gap-3">
                     {featured.map((v) => {
                       const t = pickTitle(v);
                       const href = v.kp_id ? movieSlugHtmlPath(v.kp_id, t) : null;
                       const posterSrc = proxyImageUrl(v.poster_url);
+                      const canOptimizePoster = !!posterSrc && posterSrc.startsWith("/api/image-proxy");
                       if (!href || !posterSrc) return null;
                       return (
                         <button
@@ -656,7 +657,14 @@ export function VideosGridClient({
                           title={t}
                           className="relative h-[120px] w-[86px] shrink-0 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)]"
                         >
-                          <Image src={posterSrc} alt={t} fill unoptimized className="object-cover" sizes="86px" />
+                          <Image
+                            src={posterSrc}
+                            alt={t}
+                            fill
+                            unoptimized={!canOptimizePoster}
+                            className="object-cover"
+                            sizes="86px"
+                          />
                         </button>
                       );
                     })}
@@ -682,6 +690,8 @@ export function VideosGridClient({
                         void onSubmitSearch();
                       }
                     }}
+                    inputMode="search"
+                    enterKeyHint="search"
                     placeholder="Поиск"
                     className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
                   />
@@ -738,18 +748,18 @@ export function VideosGridClient({
                   ) : null}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex w-full gap-2 sm:w-auto">
                   <button
                     type="button"
                     onClick={onSubmitSearch}
-                    className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
+                    className="flex-1 rounded-xl bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
                   >
                     Найти
                   </button>
                   <button
                     type="button"
                     onClick={clearSearch}
-                    className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                    className="flex-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
                   >
                     Очистить
                   </button>
