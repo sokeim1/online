@@ -647,7 +647,6 @@ export function VideosGridClient({
                       const t = pickTitle(v);
                       const href = v.kp_id ? movieSlugHtmlPath(v.kp_id, t) : null;
                       const posterSrc = proxyImageUrl(v.poster_url);
-                      const canOptimizePoster = !!posterSrc && posterSrc.startsWith("/api/image-proxy");
                       if (!href || !posterSrc) return null;
                       return (
                         <button
@@ -661,7 +660,7 @@ export function VideosGridClient({
                             src={posterSrc}
                             alt={t}
                             fill
-                            unoptimized={!canOptimizePoster}
+                            unoptimized
                             className="object-cover"
                             sizes="86px"
                           />

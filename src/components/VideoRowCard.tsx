@@ -23,7 +23,6 @@ export function VideoRowCard({ video }: { video: VibixVideoLink }) {
   const country = video.country?.filter(Boolean)?.[0] ?? null;
   const genres = (video.genre ?? []).filter(Boolean).slice(0, 3);
   const episodes = video.type === "serial" ? video.episodes_count ?? null : null;
-  const canOptimizePoster = !!posterSrc && posterSrc.startsWith("/api/image-proxy");
 
   const content = (
     <div className="rounded-[28px] bg-[color:var(--surface)] p-[2px] shadow-[0_10px_35px_rgba(0,0,0,0.35)]">
@@ -35,7 +34,7 @@ export function VideoRowCard({ video }: { video: VibixVideoLink }) {
             alt={title}
             fill
             sizes="(min-width: 640px) 140px, 110px"
-            unoptimized={!canOptimizePoster}
+            unoptimized
             className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
