@@ -41,7 +41,7 @@ function escapeXml(s: string): string {
 }
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
-  const limit = 100;
+  const limit = 20;
   const moviesPagesPerSitemap = 35;
   const serialsPagesPerSitemap = 20;
 

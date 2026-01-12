@@ -39,7 +39,7 @@ export function SimilarVideosScroller({
 
     void (async () => {
       try {
-        const res = await fetch(`/api/vibix/videos/browse?genre=${encodeURIComponent(g)}&page=1`, {
+        const res = await fetch(`/api/vibix/videos/browse?genre=${encodeURIComponent(g)}&page=1&enrich=0`, {
           signal: ac.signal,
         });
         if (!res.ok) {

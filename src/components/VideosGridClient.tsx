@@ -410,6 +410,7 @@ export function VideosGridClient({
           url = `/api/vibix/videos/search?${new URLSearchParams({
             ...Object.fromEntries(sp.entries()),
             name: debouncedQuery,
+            enrich: "0",
           }).toString()}`;
         } else if (isBrowseMode) {
           const browse = new URLSearchParams(Object.fromEntries(sp.entries()));
@@ -417,8 +418,10 @@ export function VideosGridClient({
           if (navYear != null) browse.set("year", String(navYear));
           else if (navGenre) browse.set("genre", navGenre);
           else if (navCountry) browse.set("country", navCountry);
+          browse.set("enrich", "0");
           url = `/api/vibix/videos/browse?${browse.toString()}`;
         } else {
+          sp.set("enrich", "0");
           url = `/api/vibix/videos?${sp.toString()}`;
         }
 

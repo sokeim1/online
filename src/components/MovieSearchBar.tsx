@@ -89,6 +89,7 @@ export function MovieSearchBar({ className }: Props) {
         sp.set("name", q);
         sp.set("page", "1");
         sp.set("suggest", "1");
+        sp.set("enrich", "0");
         // limit is omitted because Vibix /links may require a minimum (e.g. 20)
 
         const res = await fetch(`/api/vibix/videos/search?${sp.toString()}`, {

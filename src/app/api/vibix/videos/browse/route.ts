@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   getVibixCountries,
   getVibixGenres,
-  getVibixSerialByKpId,
   getVibixVideoByKpId,
   getVibixVideoLinks,
 } from "@/lib/vibix";
@@ -58,8 +57,6 @@ function normalizeText(input: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
-
-type BrowseMode = "year" | "genre" | "country";
 
 async function getTaxonomy(): Promise<TaxonomyCacheEntry> {
   const now = Date.now();
@@ -138,28 +135,17 @@ async function enrichLinks<
         const kpId = v.kp_id as number;
         const cached = enrichCache.get(kpId);
         if (cached && now - cached.ts < ttlMs) {
-          if (v.type !== "serial" || cached.episodes_count != null) {
-            return cached;
-          }
+          return cached;
         }
 
         const d = await getVibixVideoByKpId(kpId);
-
-        let episodesCount: number | null = null;
-        if (v.type === "serial") {
-          const si = await getVibixSerialByKpId(kpId).catch(() => null);
-          if (si?.seasons?.length) {
-            episodesCount = si.seasons.reduce((acc, s) => acc + (s.series?.length ?? 0), 0);
-          }
-        }
-
         const entry: EnrichEntry = {
           ts: now,
           genre: d.genre ?? null,
           country: d.country ?? null,
           kp_rating: d.kp_rating ?? null,
           imdb_rating: d.imdb_rating ?? null,
-          episodes_count: episodesCount,
+          episodes_count: null,
         };
         enrichCache.set(kpId, entry);
         return entry;
@@ -193,6 +179,7 @@ export async function GET(req: Request) {
   const typeRaw = (searchParams.get("type") ?? "all").trim();
   const pageRaw = searchParams.get("page") ?? "1";
   const limitRaw = searchParams.get("limit") ?? undefined;
+  const enrich = searchParams.get("enrich") === "1";
 
   const type: "all" | "movie" | "serial" = typeRaw === "movie" || typeRaw === "serial" ? typeRaw : "all";
   const safePage = Math.max(1, Math.floor(Number(pageRaw) || 1));
@@ -204,7 +191,7 @@ export async function GET(req: Request) {
     year ? ({ mode: "year" as const, value: year } as const) : null,
     genre ? ({ mode: "genre" as const, value: genre } as const) : null,
     country ? ({ mode: "country" as const, value: country } as const) : null,
-  ].filter(Boolean) as Array<{ mode: BrowseMode; value: string }>;
+  ].filter(Boolean) as Array<{ mode: "year" | "genre" | "country"; value: string }>;
 
   if (active.length !== 1) {
     return NextResponse.json(
@@ -288,7 +275,10 @@ export async function GET(req: Request) {
       countryIds: countryId ? [countryId] : undefined,
     });
 
-    data.data = (await enrichLinks(data.data as CatalogItem[])).filter((v) => v.kp_id != null);
+    if (enrich) {
+      data.data = await enrichLinks(data.data as CatalogItem[]);
+    }
+    data.data = (data.data as CatalogItem[]).filter((v) => v.kp_id != null);
 
     const res = NextResponse.json(data);
     res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");

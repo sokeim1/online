@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import {
-  getVibixSerialByKpId,
   getVibixTags,
   getVibixVideoByKpId,
   getVibixVideoLinks,
@@ -83,21 +82,13 @@ async function enrichLinks<
         }
 
         const d = await getVibixVideoByKpId(kpId);
-
-        let episodesCount: number | null = null;
-        if (v.type === "serial") {
-          const si = await getVibixSerialByKpId(kpId).catch(() => null);
-          if (si?.seasons?.length) {
-            episodesCount = si.seasons.reduce((acc, s) => acc + (s.series?.length ?? 0), 0);
-          }
-        }
         const entry: EnrichEntry = {
           ts: now,
           genre: d.genre ?? null,
           country: d.country ?? null,
           kp_rating: d.kp_rating ?? null,
           imdb_rating: d.imdb_rating ?? null,
-          episodes_count: episodesCount,
+          episodes_count: null,
         };
         enrichCache.set(kpId, entry);
         return entry;
@@ -284,6 +275,7 @@ export async function GET(req: Request) {
   const pageRaw = searchParams.get("page") ?? undefined;
   const limitRaw = searchParams.get("limit") ?? undefined;
   const suggest = searchParams.get("suggest") === "1";
+  const enrich = searchParams.get("enrich") === "1";
 
   if (!name) {
     return NextResponse.json(
@@ -312,7 +304,9 @@ export async function GET(req: Request) {
         });
 
         if (direct.data.length > 0) {
-          direct.data = await enrichLinks(direct.data);
+          if (enrich && !suggest) {
+            direct.data = await enrichLinks(direct.data);
+          }
           const res = NextResponse.json(direct);
           res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
           return res;
@@ -333,7 +327,10 @@ export async function GET(req: Request) {
           limit: safeLimit,
           tagIds: [tagId],
         });
-        tagged.data = (await enrichLinks(tagged.data)).filter((v) => v.kp_id != null);
+        if (enrich && !suggest) {
+          tagged.data = await enrichLinks(tagged.data);
+        }
+        tagged.data = tagged.data.filter((v) => v.kp_id != null);
         const res = NextResponse.json(tagged);
         res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
         return res;
@@ -351,7 +348,7 @@ export async function GET(req: Request) {
     const to = total ? Math.min(current_page * safeLimit, total) : null;
     const pageItems = matches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
 
-    const enriched = await enrichLinks(pageItems);
+    const enriched = enrich && !suggest ? await enrichLinks(pageItems) : pageItems;
 
     const res = NextResponse.json({
       data: enriched,
