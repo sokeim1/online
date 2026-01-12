@@ -59,6 +59,8 @@ function normalizeText(input: string): string {
     .trim();
 }
 
+type BrowseMode = "year" | "genre" | "country";
+
 async function getTaxonomy(): Promise<TaxonomyCacheEntry> {
   const now = Date.now();
   const ttlMs = 6 * 60 * 60 * 1000;
