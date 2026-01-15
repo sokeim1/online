@@ -6,6 +6,8 @@ import Image from "next/image";
 import { Header } from "@/components/Header";
 import { MovieSearchBar } from "@/components/MovieSearchBar";
 import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
+import { VibixRendexPlayer } from "@/components/VibixRendexPlayer";
+import { PosterLightbox } from "@/components/PosterLightbox";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
 import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
@@ -172,23 +174,24 @@ export default async function MoviePage({
 
           <div className="px-5 pb-7 pt-5 sm:px-6 sm:pb-8 sm:pt-6">
             <div className="grid gap-6 md:grid-cols-[260px_1fr]">
-              <div className="">
-                <div className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]">
-                  {posterSrc ? (
+              <div className="relative h-[320px] w-[230px] shrink-0 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+                {posterSrc ? (
+                  <>
                     <Image
                       src={posterSrc}
                       alt={title}
-                      width={520}
-                      height={780}
+                      fill
+                      sizes="230px"
                       unoptimized
-                      className="h-auto w-full object-cover"
+                      className="object-cover"
                     />
-                  ) : (
-                    <div className="flex aspect-[2/3] w-full items-center justify-center text-xs text-[color:var(--muted)]">
-                      Нет постера
-                    </div>
-                  )}
-                </div>
+                    <PosterLightbox src={posterSrc} alt={title} />
+                  </>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
+                    Нет постера
+                  </div>
+                )}
               </div>
 
               <div className="min-w-0">
@@ -273,13 +276,13 @@ export default async function MoviePage({
               </div>
               <div className="mt-3 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
                 <div className="relative aspect-video w-full">
-                  <iframe
-                    src={video.iframe_url}
-                    className="absolute inset-0 h-full w-full"
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    allowFullScreen
-                    loading="lazy"
+                  <VibixRendexPlayer
+                    publisherId="676077867"
+                    type={video.type === "serial" ? "series" : "movie"}
+                    id={String(video.id)}
                     title={title}
+                    fallbackIframeUrl={video.iframe_url}
+                    posterSrc={posterSrc}
                   />
                 </div>
               </div>

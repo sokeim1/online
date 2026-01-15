@@ -9,7 +9,15 @@ function normalizeSiteUrl(rawUrl: string): string {
     return rawUrl.replace(/\/$/, "");
   }
 
-  const host = url.hostname;
+  const parts = url.hostname.split(".");
+  if (parts[0] === "m") {
+    parts.shift();
+  }
+  if (parts[0] === "www" && parts[1] === "m") {
+    parts.splice(1, 1);
+  }
+
+  const host = parts.join(".");
   if (
     host &&
     !host.startsWith("www.") &&
@@ -18,6 +26,8 @@ function normalizeSiteUrl(rawUrl: string): string {
     !host.endsWith(".vercel.app")
   ) {
     url.hostname = `www.${host}`;
+  } else {
+    url.hostname = host;
   }
   return url.toString().replace(/\/$/, "");
 }

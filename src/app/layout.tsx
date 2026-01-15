@@ -27,7 +27,15 @@ function getMetadataBase(): URL {
     if (!s) continue;
     try {
       const url = new URL(s);
-      const host = url.hostname;
+      const parts = url.hostname.split(".");
+      if (parts[0] === "m") {
+        parts.shift();
+      }
+      if (parts[0] === "www" && parts[1] === "m") {
+        parts.splice(1, 1);
+      }
+
+      const host = parts.join(".");
       if (
         host &&
         !host.startsWith("www.") &&
@@ -36,6 +44,8 @@ function getMetadataBase(): URL {
         !host.endsWith(".vercel.app")
       ) {
         url.hostname = `www.${host}`;
+      } else {
+        url.hostname = host;
       }
       return url;
     } catch {
@@ -97,6 +107,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#2ee58a",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
@@ -106,12 +118,27 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ru" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <Script
+          src="https://v-js-menu.run/public/lib.en.min.js"
+          strategy="beforeInteractive"
+        />
+        <Script
+          src="https://graphicslab.io/sdk/v2/rendex-sdk.min.js"
+          strategy="beforeInteractive"
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Script id="theme-init" strategy="beforeInteractive">
           {"(function(){function a(){try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light'){document.documentElement.dataset.theme=t;}}catch(e){}}a();try{window.addEventListener('pageshow',a);}catch(e){}})();"}
         </Script>
+        <ins
+          id="vibix_union"
+          data-publisher_id="676077867"
+          data-add_types="brand,sticker,pcsticker,banners"
+        />
         {children}
         <Analytics />
       </body>

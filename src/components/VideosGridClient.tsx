@@ -43,6 +43,7 @@ export function VideosGridClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didInitFromUrl = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const [type, setType] = useState<TypeFilter>(() => {
     const t = (initialType ?? "all").trim();
@@ -245,6 +246,10 @@ export function VideosGridClient({
       return;
     }
 
+    setIsSearchFocused(false);
+    setSuggestions([]);
+    searchInputRef.current?.blur();
+
     if (/^\d+$/.test(q)) {
       router.push(movieSlugHtmlPath(Number(q), q));
       return;
@@ -279,6 +284,8 @@ export function VideosGridClient({
     setQuery("");
     setDebouncedQuery("");
     setSuggestions([]);
+    setIsSearchFocused(false);
+    searchInputRef.current?.blur();
   }
 
   useEffect(() => {
@@ -676,6 +683,7 @@ export function VideosGridClient({
               <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:flex-row sm:items-center">
                 <div className="relative w-full flex-1">
                   <input
+                    ref={searchInputRef}
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onFocus={() => setIsSearchFocused(true)}
@@ -714,6 +722,9 @@ export function VideosGridClient({
                                 onMouseDown={(ev) => {
                                   ev.preventDefault();
                                   if (!s.kp_id) return;
+                                  setIsSearchFocused(false);
+                                  setSuggestions([]);
+                                  searchInputRef.current?.blur();
                                   router.push(movieSlugHtmlPath(s.kp_id, title));
                                 }}
                                 className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"

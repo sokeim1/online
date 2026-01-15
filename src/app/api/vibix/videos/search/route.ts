@@ -131,6 +131,56 @@ function normalizeText(input: string): string {
     .trim();
 }
 
+const stopWords = new Set([
+  "и",
+  "в",
+  "во",
+  "на",
+  "по",
+  "за",
+  "к",
+  "ко",
+  "о",
+  "об",
+  "от",
+  "до",
+  "для",
+  "из",
+  "с",
+  "со",
+  "без",
+  "под",
+  "над",
+  "при",
+  "про",
+  "как",
+  "это",
+  "тот",
+  "та",
+  "те",
+  "этот",
+  "эта",
+  "эти",
+  "новый",
+  "новая",
+  "новое",
+  "новые",
+  "смотреть",
+  "онлайн",
+  "фильм",
+  "сериал",
+  "movie",
+  "serial",
+  "watch",
+  "online",
+]);
+
+function tokenize(raw: string): string[] {
+  const base = normalizeText(raw).split(/\s+/).filter(Boolean);
+  const filtered = base.filter((w) => w.length > 1 && !stopWords.has(w));
+  return filtered.length ? filtered : base;
+}
+
 type TagsCacheEntry = {
   ts: number;
   tags: Awaited<ReturnType<typeof getVibixTags>>;
@@ -150,14 +200,19 @@ async function getTags(): Promise<TagsCacheEntry> {
 function resolveTagId(tags: TagsCacheEntry["tags"], raw: string): number | null {
   const q = normalizeText(raw);
   if (!q) return null;
-  const qWords = q.split(/\s+/).filter(Boolean);
+  const qWords = tokenize(raw);
   const exact = tags.find((t) => normalizeText(t.name ?? t.name_eng ?? t.code ?? "") === q);
   if (exact) return exact.id;
   const loose = tags.find((t) => {
     const hay = normalizeText(t.name ?? t.name_eng ?? t.code ?? "");
     if (!hay) return false;
     if (hay.includes(q) || q.includes(hay)) return true;
-    return qWords.length > 0 && qWords.every((w) => hay.includes(w));
+    return (
+      qWords.length > 0 &&
+      qWords.every((w) =>
+        hay.includes(w) || (w.length >= 4 ? hay.includes(w.slice(0, 3)) : false),
+      )
+    );
   });
   return loose?.id ?? null;
 }
@@ -168,29 +223,49 @@ function pickHaystack(v: CatalogItem): string {
 
 function isMatch(haystack: string, rawQuery: string): { ok: boolean; score: number } {
   const q = normalizeText(rawQuery);
-  const words = q.split(/\s+/).filter(Boolean);
+  const words = tokenize(rawQuery);
   if (!words.length) return { ok: false, score: 0 };
 
-  let score = 0;
-  for (const w of words) {
-    const idx = haystack.indexOf(w);
-    if (idx === -1) {
-      // allow weak prefix match for словоформы (например: "новый" -> "новинка")
-      if (w.length >= 4) {
-        const pref3 = w.slice(0, 3);
-        const pIdx = haystack.indexOf(pref3);
-        if (pIdx === -1) return { ok: false, score: 0 };
-        score += 1;
-        continue;
-      }
-      return { ok: false, score: 0 };
-    }
-    score += w.length >= 4 ? 3 : 1;
-    if (idx === 0) score += 1;
+  const yearWords = words.filter((w) => /^\d{4}$/.test(w) && Number(w) >= 1800 && Number(w) <= 2100);
+  const textWords = words.filter((w) => !yearWords.includes(w));
+  const effectiveWords = textWords.length ? textWords : words;
+
+  if (haystack === q) return { ok: true, score: 100 };
+  if (q && haystack.includes(q)) {
+    return { ok: true, score: 40 + Math.min(20, q.length) };
   }
 
-  if (haystack === q) score += 10;
-  if (haystack.includes(q)) score += 4;
+  const required =
+    effectiveWords.length <= 2 ? effectiveWords.length : Math.max(2, Math.ceil(effectiveWords.length * 0.6));
+
+  let score = 0;
+  let matched = 0;
+  for (const w of effectiveWords) {
+    const idx = haystack.indexOf(w);
+    if (idx !== -1) {
+      matched += 1;
+      score += w.length >= 4 ? 3 : 1;
+      if (idx === 0) score += 1;
+      continue;
+    }
+
+    if (w.length >= 4) {
+      const pref3 = w.slice(0, 3);
+      const pIdx = haystack.indexOf(pref3);
+      if (pIdx !== -1) {
+        matched += 1;
+        score += 1;
+        if (pIdx === 0) score += 1;
+      }
+    }
+  }
+
+  for (const yw of yearWords) {
+    if (haystack.includes(yw)) score += 2;
+  }
+
+  if (matched < required) return { ok: false, score: 0 };
+  if (matched === effectiveWords.length) score += 4;
   return { ok: true, score };
 }
 
@@ -293,6 +368,9 @@ export async function GET(req: Request) {
   try {
     const qLen = name.trim().length;
 
+    let directData: CatalogItem[] = [];
+    let tagData: CatalogItem[] = [];
+
     // 1) Try Vibix direct search for len>=3.
     // For suggestions we still try it first, because fuzzy scanning may miss titles far in the catalog.
     if (qLen >= 3) {
@@ -303,22 +381,15 @@ export async function GET(req: Request) {
           limit: safeLimit,
         });
 
-        if (direct.data.length > 0) {
-          if (enrich && !suggest) {
-            direct.data = await enrichLinks(direct.data);
-          }
-          const res = NextResponse.json(direct);
-          res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
-          return res;
-        }
+        directData = direct.data.filter((v) => v.kp_id != null);
       } catch {
         // ignore and continue to fallback
       }
     }
 
     // 2) Keyword search by tags (e.g. "новый" -> tag "Новинка")
-    // Use it for normal searches (not for suggestions).
-    if (!suggest && qLen >= 2) {
+    // Use it both for normal searches and for suggestions when direct search is too narrow.
+    if (qLen >= 2) {
       const tc = await getTags().catch(() => null);
       const tagId = tc ? resolveTagId(tc.tags, name) : null;
       if (tagId) {
@@ -327,28 +398,76 @@ export async function GET(req: Request) {
           limit: safeLimit,
           tagIds: [tagId],
         });
-        if (enrich && !suggest) {
-          tagged.data = await enrichLinks(tagged.data);
-        }
-        tagged.data = tagged.data.filter((v) => v.kp_id != null);
-        const res = NextResponse.json(tagged);
-        res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
-        return res;
+        tagData = tagged.data.filter((v) => v.kp_id != null);
       }
     }
 
-    const targetCount = suggest ? safeLimit * 2 : safePage * safeLimit;
-    const maxPages = suggest ? 60 : 220;
-    const entry = await fuzzySearchPaged(name, targetCount, maxPages);
-    const matches = entry.matches;
-    const total = matches.length;
+    const baseMerged = rankAndDedupe(directData.concat(tagData), name);
+
+    // Suggestions must be fast: do not run expensive fuzzy scanning.
+    if (suggest) {
+      const data = baseMerged.slice(0, safeLimit);
+      const res = NextResponse.json({
+        data,
+        links: { first: "", last: "", prev: null, next: null },
+        meta: {
+          current_page: 1,
+          from: data.length ? 1 : null,
+          last_page: 1,
+          links: [],
+          path: "",
+          per_page: safeLimit,
+          to: data.length ? data.length : null,
+          total: data.length,
+        },
+        success: true,
+        message: "",
+      });
+      res.headers.set("Cache-Control", "public, max-age=0, s-maxage=120, stale-while-revalidate=600");
+      return res;
+    }
+
+    // Normal search: prefer fast merged results and only fallback to fuzzy if nothing found.
+    if (baseMerged.length > 0) {
+      const total = baseMerged.length;
+      const last_page = Math.max(1, Math.ceil(total / safeLimit));
+      const current_page = Math.min(safePage, last_page);
+      const from = total ? (current_page - 1) * safeLimit + 1 : null;
+      const to = total ? Math.min(current_page * safeLimit, total) : null;
+      const pageItems = baseMerged.slice((current_page - 1) * safeLimit, current_page * safeLimit);
+      const enriched = enrich ? await enrichLinks(pageItems) : pageItems;
+
+      const res = NextResponse.json({
+        data: enriched,
+        links: { first: "", last: "", prev: null, next: null },
+        meta: {
+          current_page,
+          from,
+          last_page,
+          links: [],
+          path: "",
+          per_page: safeLimit,
+          to,
+          total,
+        },
+        success: true,
+        message: "",
+      });
+      res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+      return res;
+    }
+
+    const targetCount = safePage * safeLimit;
+    const entry = await fuzzySearchPaged(name, targetCount, 80);
+    const mergedMatches = rankAndDedupe(entry.matches.filter((v) => v.kp_id != null), name);
+    const total = mergedMatches.length;
     const last_page = Math.max(1, Math.ceil(total / safeLimit));
     const current_page = Math.min(safePage, last_page);
     const from = total ? (current_page - 1) * safeLimit + 1 : null;
     const to = total ? Math.min(current_page * safeLimit, total) : null;
-    const pageItems = matches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
+    const pageItems = mergedMatches.slice((current_page - 1) * safeLimit, current_page * safeLimit);
 
-    const enriched = enrich && !suggest ? await enrichLinks(pageItems) : pageItems;
+    const enriched = enrich ? await enrichLinks(pageItems) : pageItems;
 
     const res = NextResponse.json({
       data: enriched,
