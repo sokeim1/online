@@ -52,25 +52,22 @@ function escapeXml(s: string): string {
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
   const limit = 20;
-  const moviesPagesPerSitemap = 35;
-  const serialsPagesPerSitemap = 20;
+  const maxPartsTotal = 10;
 
   const firstMovies = await getVibixVideoLinks({ type: "movie", page: 1, limit });
   const lastMoviesPage = firstMovies.meta?.last_page ?? 1;
-  const totalMoviesSitemaps = Math.max(1, Math.ceil(lastMoviesPage / moviesPagesPerSitemap));
-
   const firstSerials = await getVibixVideoLinks({ type: "serial", page: 1, limit });
   const lastSerialsPage = firstSerials.meta?.last_page ?? 1;
-  const totalSerialsSitemaps = Math.max(1, Math.ceil(lastSerialsPage / serialsPagesPerSitemap));
+
+  const totalPages = Math.max(1, lastMoviesPage + lastSerialsPage);
+  const pagesPerSitemap = Math.max(1, Math.ceil(totalPages / maxPartsTotal));
+  const totalSitemaps = Math.min(maxPartsTotal, Math.max(1, Math.ceil(totalPages / pagesPerSitemap)));
   const lastmod = new Date().toISOString();
 
   const sitemaps: Array<{ loc: string; lastmod?: string }> = [];
   sitemaps.push({ loc: `${baseUrl}/sitemap-static.xml`, lastmod });
-  for (let part = 1; part <= totalMoviesSitemaps; part += 1) {
+  for (let part = 1; part <= totalSitemaps; part += 1) {
     sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
-  }
-  for (let part = 1; part <= totalSerialsSitemaps; part += 1) {
-    sitemaps.push({ loc: `${baseUrl}/sitemap-serials.xml/${part}`, lastmod });
   }
 
   const body = sitemaps

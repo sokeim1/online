@@ -58,47 +58,97 @@ function toLastMod(dateLike: string | null | undefined): string | null {
   return d.toISOString();
 }
 
-async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
+class SitemapNotFoundError extends Error {
+  name = "SitemapNotFoundError";
+}
+
+async function buildMoviesSitemap(
+  baseUrl: string,
+  part: number,
+  firstMoviesMeta: Awaited<ReturnType<typeof getVibixVideoLinks>>,
+  firstSerialsMeta: Awaited<ReturnType<typeof getVibixVideoLinks>>,
+): Promise<string> {
   const limit = 20;
-  const pagesPerSitemap = 35;
-  const startPage = (part - 1) * pagesPerSitemap + 1;
-  const endPage = part * pagesPerSitemap;
+  const maxPartsTotal = 10;
+  const lastMoviesPageOverall = firstMoviesMeta.meta?.last_page ?? 1;
+  const lastSerialsPageOverall = firstSerialsMeta.meta?.last_page ?? 1;
+  const totalPages = Math.max(1, lastMoviesPageOverall + lastSerialsPageOverall);
+  const pagesPerSitemap = Math.max(1, Math.ceil(totalPages / maxPartsTotal));
+  const totalParts = Math.min(maxPartsTotal, Math.max(1, Math.ceil(totalPages / pagesPerSitemap)));
+
+  if (part > totalParts) {
+    throw new SitemapNotFoundError("Not found");
+  }
+
+  const virtualStart = (part - 1) * pagesPerSitemap + 1;
+  const virtualEnd = part * pagesPerSitemap;
 
   const urls: Array<{ loc: string; lastmod?: string }> = [];
 
-  const first = await getVibixVideoLinks({ type: "movie", page: startPage, limit });
-  for (const v of first.data) {
-    if (!v.kp_id) continue;
-    const title = v.name_rus ?? v.name_eng ?? v.name;
-    urls.push({
-      loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
-      lastmod: toLastMod(v.uploaded_at) ?? undefined,
-    });
-  }
+  const pushLinks = (data: Awaited<ReturnType<typeof getVibixVideoLinks>>["data"]) => {
+    for (const v of data) {
+      if (!v.kp_id) continue;
+      const title = v.name_rus ?? v.name_eng ?? v.name;
+      urls.push({
+        loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
+        lastmod: toLastMod(v.uploaded_at) ?? undefined,
+      });
+    }
+  };
 
-  const lastPage = first.meta?.last_page ?? startPage;
-  const maxPage = Math.min(endPage, lastPage);
-  const pages: number[] = [];
-  for (let page = startPage + 1; page <= maxPage; page += 1) {
-    pages.push(page);
-  }
+  // Virtual pages are laid out as: movie pages [1..lastMovies], then serial pages [1..lastSerials]
+  const movieStart = virtualStart;
+  const movieEnd = Math.min(virtualEnd, lastMoviesPageOverall);
+  const hasMovies = movieStart <= movieEnd;
+
+  const serialStart = Math.max(1, virtualStart - lastMoviesPageOverall);
+  const serialEnd = Math.min(virtualEnd - lastMoviesPageOverall, lastSerialsPageOverall);
+  const hasSerials = serialStart <= serialEnd;
 
   const batchSize = 4;
-  for (let i = 0; i < pages.length; i += batchSize) {
-    const chunk = pages.slice(i, i + batchSize);
-    const results = await Promise.allSettled(
-      chunk.map((page) => getVibixVideoLinks({ type: "movie", page, limit })),
-    );
 
-    for (const r of results) {
-      if (r.status !== "fulfilled") continue;
-      for (const v of r.value.data) {
-        if (!v.kp_id) continue;
-        const title = v.name_rus ?? v.name_eng ?? v.name;
-        urls.push({
-          loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
-          lastmod: toLastMod(v.uploaded_at) ?? undefined,
-        });
+  if (hasMovies) {
+    const firstMovies = movieStart === 1
+      ? firstMoviesMeta
+      : await getVibixVideoLinks({ type: "movie", page: movieStart, limit });
+    pushLinks(firstMovies.data);
+
+    const pages: number[] = [];
+    for (let page = movieStart + 1; page <= movieEnd; page += 1) {
+      pages.push(page);
+    }
+
+    for (let i = 0; i < pages.length; i += batchSize) {
+      const chunk = pages.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        chunk.map((page) => getVibixVideoLinks({ type: "movie", page, limit })),
+      );
+      for (const r of results) {
+        if (r.status !== "fulfilled") continue;
+        pushLinks(r.value.data);
+      }
+    }
+  }
+
+  if (hasSerials) {
+    const firstSerials = serialStart === 1
+      ? firstSerialsMeta
+      : await getVibixVideoLinks({ type: "serial", page: serialStart, limit });
+    pushLinks(firstSerials.data);
+
+    const pages: number[] = [];
+    for (let page = serialStart + 1; page <= serialEnd; page += 1) {
+      pages.push(page);
+    }
+
+    for (let i = 0; i < pages.length; i += batchSize) {
+      const chunk = pages.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        chunk.map((page) => getVibixVideoLinks({ type: "serial", page, limit })),
+      );
+      for (const r of results) {
+        if (r.status !== "fulfilled") continue;
+        pushLinks(r.value.data);
       }
     }
   }
@@ -138,7 +188,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
   }
 
   try {
-    const xml = await buildMoviesSitemap(siteUrl, part);
+    const limit = 20;
+    const [firstMoviesMeta, firstSerialsMeta] = await Promise.all([
+      getVibixVideoLinks({ type: "movie", page: 1, limit }),
+      getVibixVideoLinks({ type: "serial", page: 1, limit }),
+    ]);
+    const xml = await buildMoviesSitemap(siteUrl, part, firstMoviesMeta, firstSerialsMeta);
     cache.set(cacheKey, { xml, expiresAt: now + 60 * 60 * 1000 });
     return new Response(xml, {
       headers: {
@@ -146,7 +201,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
         "Cache-Control": "public, max-age=0, s-maxage=3600",
       },
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof SitemapNotFoundError) {
+      return new Response("Not found", { status: 404 });
+    }
     if (cached) {
       return new Response(cached.xml, {
         headers: {
