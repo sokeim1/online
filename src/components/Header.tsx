@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+
+import { MovieSearchBar } from "@/components/MovieSearchBar";
 
 type ThemeMode = "dark" | "light";
 
@@ -11,7 +13,6 @@ function setTheme(theme: ThemeMode) {
 }
 
 export function Header() {
-  const router = useRouter();
   const [theme, setThemeState] = useState<ThemeMode>(() => {
     if (typeof document === "undefined") return "dark";
     const t = document.documentElement.dataset.theme;
@@ -67,37 +68,42 @@ export function Header() {
     };
   }, []);
 
-  function goHome() {
+  function onHomeClick() {
     window.dispatchEvent(new Event("doramy:home"));
-    router.push("/");
   }
 
   return (
-    <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--header-bg)] backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:gap-4">
-        <button type="button" onClick={goHome} className="flex items-center gap-2 text-left">
-          <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-[color:var(--accent-soft)]">
-            <img
-              src="https://www.shutterstock.com/image-vector/film-reel-vector-cinema-logo-600nw-2353280887.jpg"
-              alt="Logo"
-              className="h-full w-full object-cover"
-              referrerPolicy="no-referrer"
-              loading="lazy"
-            />
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-[color:var(--foreground)]">Doramy Online</div>
-            <div className="hidden text-xs text-[color:var(--muted)] sm:block">Смотри бесплатно дорамы и сериалы</div>
-          </div>
-        </button>
+    <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--header-bg)] backdrop-blur-xl">
+      <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
+        <div className="flex items-center justify-between gap-2 sm:gap-4">
+          <Link href="/" onClick={onHomeClick} className="flex min-w-0 items-center gap-2 text-left cursor-pointer">
+            <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-[color:var(--accent-soft)]">
+              <img
+                src="https://www.shutterstock.com/image-vector/film-reel-vector-cinema-logo-600nw-2353280887.jpg"
+                alt="Logo"
+                className="h-full w-full object-cover"
+                referrerPolicy="no-referrer"
+                loading="lazy"
+              />
+            </div>
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-sm font-semibold text-[color:var(--foreground)]">Doramy Online</div>
+              <div className="hidden text-xs text-[color:var(--muted)] sm:block">Смотри бесплатно дорамы и сериалы</div>
+            </div>
+          </Link>
 
-        <button
-          type="button"
-          onClick={() => setThemeState((t) => (t === "dark" ? "light" : "dark"))}
-          className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-2 py-1.5 text-[11px] text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)] sm:px-3 sm:py-2 sm:text-xs"
-        >
-          {theme === "dark" ? "Светлая" : "Тёмная"}
-        </button>
+          <button
+            type="button"
+            onClick={() => setThemeState((t) => (t === "dark" ? "light" : "dark"))}
+            className="shrink-0 cursor-pointer rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+          >
+            {theme === "dark" ? "Светлая" : "Тёмная"}
+          </button>
+        </div>
+
+        <div className="mt-3">
+          <MovieSearchBar />
+        </div>
       </div>
     </header>
   );

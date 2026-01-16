@@ -12,10 +12,44 @@ import { VideoRowCard } from "@/components/VideoRowCard";
 
 type TypeFilter = VibixVideoType | "all";
 
-type TopTab = "home" | "new" | "serials" | "holiday";
+const FILTER_KEYS = [
+  "categoryId",
+  "genreId",
+  "countryId",
+  "voiceoverId",
+  "yearFrom",
+  "yearTo",
+  "tagId",
+  "excludeTagId",
+] as const;
 
 function pickTitle(v: VibixVideoLink): string {
   return v.name_rus ?? v.name_eng ?? v.name;
+}
+
+function parseRating(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const s = raw.trim().replace(/,/g, ".");
+    const m = s.match(/-?\d+(?:\.\d+)?/);
+    if (!m) return NaN;
+    const n = Number.parseFloat(m[0]);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
+function formatRating(v: VibixVideoLink): string | null {
+  const raw = (v.kp_rating ?? v.imdb_rating) as unknown;
+  const n = parseRating(raw);
+  if (!Number.isFinite(n)) return null;
+  return n.toFixed(2);
+}
+
+function pickRatingValue(v: VibixVideoLink): number {
+  const raw = (v.kp_rating ?? v.imdb_rating) as unknown;
+  const n = parseRating(raw);
+  return Number.isFinite(n) ? n : -1;
 }
 
 function parseResponse(data: unknown): VibixVideoLinksResponse {
@@ -43,7 +77,13 @@ export function VideosGridClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didInitFromUrl = useRef(false);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  const filtersKey = useMemo(() => {
+    return FILTER_KEYS
+      .flatMap((k) => searchParams.getAll(k).map((v) => `${k}=${v}`))
+      .sort()
+      .join("&");
+  }, [searchParams]);
 
   const [type, setType] = useState<TypeFilter>(() => {
     const t = (initialType ?? "all").trim();
@@ -55,23 +95,19 @@ export function VideosGridClient({
     return Number.isFinite(p) && p > 0 ? p : 1;
   });
   const [lastPage, setLastPage] = useState<number | null>(() => initialLastPage ?? null);
-  const [total, setTotal] = useState<number | null>(() => initialTotal ?? null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [homeNonce, setHomeNonce] = useState(0);
 
-  const [query, setQuery] = useState(() => initialQ ?? "");
   const [debouncedQuery, setDebouncedQuery] = useState(() => (initialQ ?? "").trim());
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const [suggestions, setSuggestions] = useState<VibixVideoLink[]>([]);
-  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
 
-  const topTab: TopTab = "home";
   const [navGenre, setNavGenre] = useState<string | null>(null);
   const [navCountry, setNavCountry] = useState<string | null>(null);
   const [navYear, setNavYear] = useState<number | null>(null);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-  const featuredScrollerRef = useRef<HTMLDivElement | null>(null);
+  const featuredNewScrollerRef = useRef<HTMLDivElement | null>(null);
+  const [featuredNewItems, setFeaturedNewItems] = useState<VibixVideoLink[]>([]);
 
   const navLists = useMemo(() => {
     const years = [2025, 2020, 2017, 2013, 2009, 2002, 2021, 2018, 2015, 2011, 2004, 2000];
@@ -113,6 +149,7 @@ export function VideosGridClient({
       setNavYear(null);
       setNavGenre(null);
       setNavCountry(null);
+      setIsMobileNavOpen(false);
       setPage(1);
       return;
     }
@@ -131,9 +168,8 @@ export function VideosGridClient({
       setNavGenre(null);
     }
 
-    setQuery("");
     setDebouncedQuery("");
-    setSuggestions([]);
+    setIsMobileNavOpen(false);
     setPage(1);
   }
 
@@ -168,7 +204,6 @@ export function VideosGridClient({
       didInitFromUrl.current = true;
       setType(nextType);
       setPage(nextPage);
-      setQuery(nextQuery);
       setDebouncedQuery(nextDebounced);
       setNavYear(nextYear);
       setNavGenre(nextGenre);
@@ -178,7 +213,6 @@ export function VideosGridClient({
 
     setType((prev) => (prev === nextType ? prev : nextType));
     setPage((prev) => (prev === nextPage ? prev : nextPage));
-    setQuery((prev) => (prev === nextQuery ? prev : nextQuery));
     setDebouncedQuery((prev) => (prev === nextDebounced ? prev : nextDebounced));
     setNavYear((prev) => (prev === nextYear ? prev : nextYear));
     setNavGenre((prev) => (prev === nextGenre ? prev : nextGenre));
@@ -188,16 +222,30 @@ export function VideosGridClient({
   useEffect(() => {
     if (!didInitFromUrl.current) return;
 
-    const sp = new URLSearchParams();
+    const sp = new URLSearchParams(searchParams.toString());
     const q = debouncedQuery.trim();
+    sp.delete("name");
     if (q) sp.set("q", q);
+    else sp.delete("q");
+
     if (type !== "all") sp.set("type", type);
+    else sp.delete("type");
+
     if (page !== 1) sp.set("page", String(page));
+    else sp.delete("page");
 
     if (!q) {
+      sp.delete("year");
+      sp.delete("genre");
+      sp.delete("country");
+
       if (navYear != null) sp.set("year", String(navYear));
       else if (navGenre) sp.set("genre", navGenre);
       else if (navCountry) sp.set("country", navCountry);
+    } else {
+      sp.delete("year");
+      sp.delete("genre");
+      sp.delete("country");
     }
 
     const next = sp.toString();
@@ -219,11 +267,6 @@ export function VideosGridClient({
 
   const isBrowseMode = useMemo(() => !isSearchMode && (navYear != null || !!navGenre || !!navCountry), [isSearchMode, navCountry, navGenre, navYear]);
 
-  const isDirectIdQuery = useMemo(() => {
-    const q = query.trim();
-    return /^\d+$/.test(q) || /^tt\d+$/i.test(q);
-  }, [query]);
-
   const pagination = useMemo(() => {
     if (!lastPage || lastPage <= 1) {
       return { pages: [] as number[], show: false };
@@ -240,64 +283,13 @@ export function VideosGridClient({
     return { pages: sorted, show: true };
   }, [lastPage, page]);
 
-  async function onSubmitSearch() {
-    const q = query.trim();
-    if (!q) {
-      return;
-    }
-
-    setIsSearchFocused(false);
-    setSuggestions([]);
-    searchInputRef.current?.blur();
-
-    if (/^\d+$/.test(q)) {
-      router.push(movieSlugHtmlPath(Number(q), q));
-      return;
-    }
-
-    if (/^tt\d+$/i.test(q)) {
-      setError(null);
-      try {
-        const res = await fetch(`/api/vibix/videos/imdb/${encodeURIComponent(q)}`);
-        const json = (await res.json()) as
-          | { success: true; data: { kp_id: number | null } }
-          | { success: false; message: string };
-        if (!res.ok || !json.success) {
-          throw new Error("message" in json ? json.message : `HTTP ${res.status}`);
-        }
-        const kpId = json.data.kp_id;
-        if (!kpId) {
-          throw new Error("У этого IMDb ID нет kp_id в Vibix");
-        }
-        router.push(movieSlugHtmlPath(kpId, String(kpId)));
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Unknown error");
-      }
-      return;
-    }
-
-    // name search
-    setDebouncedQuery(q);
-  }
-
-  function clearSearch() {
-    setQuery("");
-    setDebouncedQuery("");
-    setSuggestions([]);
-    setIsSearchFocused(false);
-    searchInputRef.current?.blur();
-  }
-
   useEffect(() => {
     function onHome() {
-      setQuery("");
       setDebouncedQuery("");
-      setSuggestions([]);
       setType("all");
       setItems([]);
       setPage(1);
       setLastPage(null);
-      setTotal(null);
       setError(null);
       setHomeNonce((n) => n + 1);
     }
@@ -312,7 +304,6 @@ export function VideosGridClient({
     setItems([]);
     setPage(1);
     setLastPage(null);
-    setTotal(null);
     setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -329,73 +320,71 @@ export function VideosGridClient({
 
   const visibleItems = useMemo(() => items, [items]);
 
-  const featured = useMemo(() => {
-    const base = (items ?? []).slice().sort((a, b) => {
+  const featuredNew = useMemo(() => {
+    const base = (featuredNewItems ?? []).slice().sort((a, b) => {
+      const ay = typeof a.year === "number" && Number.isFinite(a.year) ? a.year : -1;
+      const by = typeof b.year === "number" && Number.isFinite(b.year) ? b.year : -1;
+      if (by !== ay) return by - ay;
+
       const at = Date.parse(a.uploaded_at ?? "") || 0;
       const bt = Date.parse(b.uploaded_at ?? "") || 0;
-      return bt - at;
+      if (bt !== at) return bt - at;
+
+      return b.id - a.id;
     });
     return base.slice(0, 12);
-  }, [items]);
+  }, [featuredNewItems]);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    async function loadFeaturedNewByYear() {
+      try {
+        const target = 24;
+        const dedup = new Map<number, VibixVideoLink>();
+        const currentYear = new Date().getFullYear();
+        const minYear = 1900;
+
+        for (let y = currentYear; y >= minYear && dedup.size < target; y -= 1) {
+          for (let p = 1; p <= 3 && dedup.size < target; p += 1) {
+            const sp = new URLSearchParams();
+            sp.set("yearFrom", String(y));
+            sp.set("yearTo", String(y));
+            sp.set("page", String(p));
+            sp.set("limit", "20");
+            sp.set("enrich", "1");
+
+            const res = await fetch(`/api/vibix/videos?${sp.toString()}`, { signal: ac.signal });
+            if (!res.ok) break;
+            const json = parseResponse(await res.json());
+            const rows = (json.data ?? []).filter((v) => v.kp_id != null);
+            if (!rows.length) break;
+            for (const v of rows) {
+              if (!dedup.has(v.id)) dedup.set(v.id, v);
+              if (dedup.size >= target) break;
+            }
+            const last = json.meta?.last_page ?? 1;
+            if (p >= last) break;
+          }
+        }
+
+        setFeaturedNewItems(Array.from(dedup.values()));
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+      }
+    }
+    void loadFeaturedNewByYear();
+    return () => ac.abort();
+  }, [homeNonce]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
 
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      setDebouncedQuery(query.trim());
-    }, 400);
-    return () => window.clearTimeout(t);
-  }, [query]);
-
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 1 || isDirectIdQuery) {
-      setSuggestions([]);
-      setIsSuggestionsLoading(false);
-      return;
-    }
-
-    const ac = new AbortController();
-    const t = window.setTimeout(async () => {
-      setIsSuggestionsLoading(true);
-      try {
-        const sp = new URLSearchParams();
-        sp.set("name", q);
-        sp.set("page", "1");
-        sp.set("suggest", "1");
-        // limit is omitted because Vibix /links may require a minimum (e.g. 20)
-
-        const res = await fetch(`/api/vibix/videos/search?${sp.toString()}`, {
-          signal: ac.signal,
-        });
-        if (!res.ok) {
-          setSuggestions([]);
-          return;
-        }
-        const json = parseResponse(await res.json());
-        setSuggestions(json.data.filter((x) => x.kp_id != null).slice(0, 7));
-      } catch (e) {
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        setSuggestions([]);
-      } finally {
-        setIsSuggestionsLoading(false);
-      }
-    }, 250);
-
-    return () => {
-      window.clearTimeout(t);
-      ac.abort();
-    };
-  }, [isDirectIdQuery, query]);
-
-  useEffect(() => {
     // when switching to search mode, reset pagination
     setItems([]);
     setPage(1);
     setLastPage(null);
-    setTotal(null);
     setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [debouncedQuery, navCountry, navGenre, navYear]);
@@ -412,23 +401,29 @@ export function VideosGridClient({
         sp.set("limit", "20");
         if (type !== "all") sp.set("type", type);
 
+        for (const k of FILTER_KEYS) {
+          for (const v of searchParams.getAll(k)) {
+            sp.append(k, v);
+          }
+        }
+
         let url: string;
         if (isSearchMode) {
-          url = `/api/vibix/videos/search?${new URLSearchParams({
-            ...Object.fromEntries(sp.entries()),
-            name: debouncedQuery,
-            enrich: "0",
-          }).toString()}`;
+          const search = new URLSearchParams(sp);
+          search.set("name", debouncedQuery);
+          search.set("enrich", "1");
+          url = `/api/vibix/videos/search?${search.toString()}`;
         } else if (isBrowseMode) {
           const browse = new URLSearchParams(Object.fromEntries(sp.entries()));
           browse.delete("limit");
+          FILTER_KEYS.forEach((k) => browse.delete(k));
           if (navYear != null) browse.set("year", String(navYear));
           else if (navGenre) browse.set("genre", navGenre);
           else if (navCountry) browse.set("country", navCountry);
-          browse.set("enrich", "0");
+          browse.set("enrich", "1");
           url = `/api/vibix/videos/browse?${browse.toString()}`;
         } else {
-          sp.set("enrich", "0");
+          sp.set("enrich", "1");
           url = `/api/vibix/videos?${sp.toString()}`;
         }
 
@@ -453,13 +448,28 @@ export function VideosGridClient({
         const base = json.data.filter((v) => v.kp_id != null);
         const filtered = isSearchMode && type !== "all" ? base.filter((v) => v.type === type) : base;
 
-        setItems(filtered);
+        const withOrdering =
+          !isSearchMode
+            ? filtered
+                .slice()
+                .sort((a, b) => {
+                  const av = pickRatingValue(a);
+                  const bv = pickRatingValue(b);
+                  if (bv !== av) return bv - av;
+
+                  const ay = typeof a.year === "number" && Number.isFinite(a.year) ? a.year : -1;
+                  const by = typeof b.year === "number" && Number.isFinite(b.year) ? b.year : -1;
+                  if (by !== ay) return by - ay;
+
+                  return b.id - a.id;
+                })
+            : filtered;
+
+        setItems(withOrdering);
         if (isSearchMode && type !== "all") {
           setLastPage(1);
-          setTotal(filtered.length);
         } else {
           setLastPage(json.meta?.last_page ?? null);
-          setTotal(json.meta?.total ?? null);
         }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
@@ -474,7 +484,7 @@ export function VideosGridClient({
     return () => {
       ac.abort();
     };
-  }, [page, type, isBrowseMode, isSearchMode, debouncedQuery, homeNonce, navCountry, navGenre, navYear]);
+  }, [page, type, isBrowseMode, isSearchMode, debouncedQuery, homeNonce, navCountry, navGenre, navYear, filtersKey]);
 
   const PaginationBlock = useMemo(() => {
     if (!pagination.show) return null;
@@ -485,7 +495,7 @@ export function VideosGridClient({
             type="button"
             onClick={() => goToPage(page - 1)}
             disabled={page <= 1 || isLoading || !!error}
-            className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
+            className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
           >
             Назад
           </button>
@@ -496,14 +506,14 @@ export function VideosGridClient({
 
             return (
               <div key={`nav-${p}`} className="flex items-center gap-2">
-                {showDots ? <span className="px-1 text-xs text-white/40">…</span> : null}
+                {showDots ? <span className="px-1 text-xs text-[color:var(--muted)]">…</span> : null}
                 <button
                   type="button"
                   onClick={() => goToPage(p)}
                   disabled={isLoading || !!error}
-                  className={`min-w-10 rounded-xl border px-4 py-2 text-xs transition disabled:opacity-40 ${
+                  className={`min-w-10 rounded-2xl border px-3 py-2 text-xs transition disabled:opacity-40 sm:min-w-12 sm:px-5 sm:py-3 sm:text-sm ${
                     p === page
-                      ? "border-[color:var(--border)] bg-[color:var(--accent)] text-black"
+                      ? "border-[color:var(--border)] bg-[color:var(--pagination-active)] text-white"
                       : "border-[color:var(--border)] bg-[color:var(--surface)] text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
                   }`}
                 >
@@ -517,14 +527,10 @@ export function VideosGridClient({
             type="button"
             onClick={() => goToPage(page + 1)}
             disabled={(lastPage != null ? page >= lastPage : false) || isLoading || !!error}
-            className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40"
+            className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
           >
             Вперёд
           </button>
-        </div>
-
-        <div className="text-xs text-[color:var(--muted)]">
-          Страница {page} из {lastPage}
         </div>
       </div>
     );
@@ -539,9 +545,9 @@ export function VideosGridClient({
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pb-12 sm:pb-16">
-      <div className="mt-6 rounded-[32px] bg-[color:var(--surface)]/60 p-4 sm:p-6">
-        <div className="flex gap-6">
+    <div className="mx-auto w-full max-w-7xl px-3 pb-12 sm:px-4 sm:pb-16">
+      <div className="mt-4 rounded-[28px] bg-[color:var(--surface)]/80 p-3 backdrop-blur-xl sm:mt-6 sm:rounded-[32px] sm:p-6">
+        <div className="flex gap-4 sm:gap-6">
           <aside className="hidden w-72 shrink-0 md:block">
             <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
               <div className="text-sm font-semibold text-[color:var(--foreground)]">Навигация</div>
@@ -613,47 +619,124 @@ export function VideosGridClient({
           </aside>
 
           <main className="min-w-0 flex-1">
+            <div className="mb-4 md:hidden">
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen((v) => !v)}
+                className="w-full rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-3 text-left text-sm font-semibold text-[color:var(--foreground)]"
+              >
+                Навигация
+              </button>
+
+              {isMobileNavOpen ? (
+                <div className="mt-3 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+                  <div className="space-y-4 text-xs text-[color:var(--muted)]">
+                    <div>
+                      <div className="mb-2 text-[color:var(--foreground)]">Жанры</div>
+                      <div className="grid grid-cols-2 gap-1">
+                        {navLists.genres.map((g) => (
+                          <button
+                            key={`m-${g}`}
+                            type="button"
+                            onClick={() => {
+                              if (navGenre === g) setNavigation(null);
+                              else setNavigation({ genre: g });
+                            }}
+                            className={`rounded-lg border px-2 py-1 text-left transition ${
+                              navGenre === g
+                                ? "border-[color:var(--accent)] bg-[color:var(--surface-hover)] text-[color:var(--foreground)]"
+                                : "border-[color:var(--border)] bg-transparent text-[color:var(--muted)] hover:bg-[color:var(--surface-hover)]"
+                            }`}
+                          >
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-[color:var(--foreground)]">По году</div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {navLists.years.map((y) => (
+                          <button
+                            key={`my-${y}`}
+                            type="button"
+                            onClick={() => {
+                              if (navYear === y) setNavigation(null);
+                              else setNavigation({ year: y });
+                            }}
+                            className={`rounded-lg border px-2 py-1 text-left transition ${
+                              navYear === y
+                                ? "border-[color:var(--accent)] bg-[color:var(--surface-hover)] text-[color:var(--foreground)]"
+                                : "border-[color:var(--border)] bg-transparent text-[color:var(--muted)] hover:bg-[color:var(--surface-hover)]"
+                            }`}
+                          >
+                            {y}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="mb-2 text-[color:var(--foreground)]">Страны</div>
+                      <div className="grid grid-cols-2 gap-1">
+                        {navLists.countries.map((c) => (
+                          <button
+                            key={`mc-${c}`}
+                            type="button"
+                            onClick={() => {
+                              if (navCountry === c) setNavigation(null);
+                              else setNavigation({ country: c });
+                            }}
+                            className={`rounded-lg border px-2 py-1 text-left transition ${
+                              navCountry === c
+                                ? "border-[color:var(--accent)] bg-[color:var(--surface-hover)] text-[color:var(--foreground)]"
+                                : "border-[color:var(--border)] bg-transparent text-[color:var(--muted)] hover:bg-[color:var(--surface-hover)]"
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-xs font-semibold text-black">ГЛАВНАЯ</div>
-                <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs font-semibold text-[color:var(--foreground)]">
-                  НОВИНКИ
-                </div>
-                <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs font-semibold text-[color:var(--foreground)]">
-                  СЕРИАЛЫ
-                </div>
-                <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs font-semibold text-[color:var(--foreground)]">
-                  НОВОГОДНИЕ
-                </div>
+              <div className="text-sm font-semibold text-[color:var(--foreground)] sm:text-base">
+                Новые фильмы, сериалы, мультфильмы и аниме
               </div>
 
               <div className="relative mt-4">
                 <button
                   type="button"
-                  onClick={() => featuredScrollerRef.current?.scrollBy({ left: -420, behavior: "smooth" })}
-                  className="absolute left-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)] sm:block"
+                  onClick={() => featuredNewScrollerRef.current?.scrollBy({ left: -420, behavior: "smooth" })}
+                  className="absolute left-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[color:var(--accent)] text-sm font-semibold text-white shadow hover:opacity-90 sm:flex"
                   aria-label="Scroll left"
                 >
-                  ◀
+                  <span aria-hidden>‹</span>
                 </button>
                 <button
                   type="button"
-                  onClick={() => featuredScrollerRef.current?.scrollBy({ left: 420, behavior: "smooth" })}
-                  className="absolute right-0 top-1/2 z-10 hidden -translate-y-1/2 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)] sm:block"
+                  onClick={() => featuredNewScrollerRef.current?.scrollBy({ left: 420, behavior: "smooth" })}
+                  className="absolute right-2 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-[color:var(--accent)] text-sm font-semibold text-white shadow hover:opacity-90 sm:flex"
                   aria-label="Scroll right"
                 >
-                  ▶
+                  <span aria-hidden>›</span>
                 </button>
 
                 <div
-                  ref={featuredScrollerRef}
-                  className="overflow-x-auto sm:px-10"
+                  ref={featuredNewScrollerRef}
+                  className="no-scrollbar overflow-x-auto sm:px-10"
                 >
                   <div className="flex w-max gap-3">
-                    {featured.map((v) => {
+                    {featuredNew.map((v) => {
                       const t = pickTitle(v);
                       const href = v.kp_id ? movieSlugHtmlPath(v.kp_id, t) : null;
                       const posterSrc = proxyImageUrl(v.poster_url);
+                      const rating = formatRating(v);
                       if (!href || !posterSrc) return null;
                       return (
                         <button
@@ -661,16 +744,28 @@ export function VideosGridClient({
                           type="button"
                           onClick={() => router.push(href)}
                           title={t}
-                          className="relative h-[120px] w-[86px] shrink-0 overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)]"
+                          className="group w-[120px] shrink-0 text-left sm:w-[140px]"
                         >
-                          <Image
-                            src={posterSrc}
-                            alt={t}
-                            fill
-                            unoptimized
-                            className="object-cover"
-                            sizes="86px"
-                          />
+                          <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)]">
+                            <Image
+                              src={posterSrc}
+                              alt={t}
+                              fill
+                              unoptimized
+                              className="object-cover"
+                              sizes="(min-width: 640px) 140px, 120px"
+                            />
+
+                            {rating ? (
+                              <div className="absolute left-1 top-1 rounded bg-orange-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow">
+                                {rating}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-2 line-clamp-2 text-xs font-medium text-[color:var(--foreground)] transition-colors group-hover:text-[color:var(--title-hover)]">
+                            {t}
+                          </div>
                         </button>
                       );
                     })}
@@ -679,185 +774,53 @@ export function VideosGridClient({
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 pt-4">
-              <div className="flex flex-col gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:flex-row sm:items-center">
-                <div className="relative w-full flex-1">
-                  <input
-                    ref={searchInputRef}
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    onFocus={() => setIsSearchFocused(true)}
-                    onBlur={() => {
-                      // небольшой таймаут, чтобы клик по подсказке успел сработать
-                      window.setTimeout(() => setIsSearchFocused(false), 120);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void onSubmitSearch();
-                      }
-                    }}
-                    inputMode="search"
-                    enterKeyHint="search"
-                    placeholder="Поиск"
-                    className="w-full rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] placeholder:text-[color:var(--muted)] outline-none focus:border-[color:var(--accent)]"
-                  />
+            <div className="mx-auto w-full max-w-3xl pt-4">
+              {PaginationBlock}
 
-                  {isSearchFocused && !isDirectIdQuery && query.trim().length >= 1 ? (
-                    <div className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--background)] shadow-xl">
-                      {isSuggestionsLoading ? (
-                        <div className="p-3 text-xs text-[color:var(--muted)]">Поиск...</div>
-                      ) : suggestions.length ? (
-                        <div className="max-h-80 overflow-auto">
-                          {suggestions.map((s) => {
-                            const title = pickTitle(s);
-                            const canOpen = !!s.kp_id;
-                            const posterSrc = proxyImageUrl(s.poster_url);
-
-                            return (
-                              <button
-                                key={`${s.id}-${s.kp_id ?? "nokp"}`}
-                                type="button"
-                                disabled={!canOpen}
-                                onMouseDown={(ev) => {
-                                  ev.preventDefault();
-                                  if (!s.kp_id) return;
-                                  setIsSearchFocused(false);
-                                  setSuggestions([]);
-                                  searchInputRef.current?.blur();
-                                  router.push(movieSlugHtmlPath(s.kp_id, title));
-                                }}
-                                className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                <div className="h-12 w-9 overflow-hidden rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]">
-                                  {posterSrc ? (
-                                    <Image
-                                      src={posterSrc}
-                                      alt={title}
-                                      width={36}
-                                      height={48}
-                                      unoptimized
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : null}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="truncate text-sm text-[color:var(--foreground)]">{title}</div>
-                                  <div className="mt-0.5 text-xs text-[color:var(--muted)]">
-                                    {s.year ?? "—"} • {s.type} • {s.quality}
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="p-3 text-xs text-[color:var(--muted)]">Ничего не найдено</div>
-                      )}
-                    </div>
-                  ) : null}
+              {error ? (
+                <div className="mt-6 rounded-2xl border border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--foreground)]">
+                  <div className="font-medium">Ошибка</div>
+                  <div className="mt-1 whitespace-pre-wrap text-[color:var(--muted)]">{error}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={resetAndReload}
+                      className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                    >
+                      Повторить
+                    </button>
+                  </div>
                 </div>
+              ) : null}
 
-                <div className="flex w-full gap-2 sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={onSubmitSearch}
-                    className="flex-1 rounded-xl bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-black hover:opacity-90"
-                  >
-                    Найти
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearSearch}
-                    className="flex-1 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-sm text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
-                  >
-                    Очистить
-                  </button>
+              {!isLoading && !error && isSearchMode && items.length === 0 ? (
+                <div className="mt-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+                  <div className="text-sm font-medium text-[color:var(--foreground)]">Контент не найден</div>
+                  <div className="mt-1 text-xs text-[color:var(--muted)]">
+                    Попробуй другой запрос или вернись на главную.
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDebouncedQuery("");
+                        router.push("/");
+                      }}
+                      className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-xs font-medium text-black hover:opacity-90"
+                    >
+                      На главную
+                    </button>
+                  </div>
                 </div>
+              ) : null}
+
+              <div className="mt-6 flex flex-col gap-3">
+                {visibleItems.map((v) => (
+                  <VideoRowCard key={`${v.id}-${v.kp_id ?? "nokp"}`} video={v} />
+                ))}
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-1">
-                  <button
-                    onClick={() => setType("all")}
-                    className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                      type === "all"
-                        ? "bg-[color:var(--accent)] text-black"
-                        : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
-                    }`}
-                    type="button"
-                  >
-                    Все
-                  </button>
-                  <button
-                    onClick={() => setType("movie")}
-                    className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                      type === "movie"
-                        ? "bg-[color:var(--accent)] text-black"
-                        : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
-                    }`}
-                    type="button"
-                  >
-                    Фильмы
-                  </button>
-                  <button
-                    onClick={() => setType("serial")}
-                    className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                      type === "serial"
-                        ? "bg-[color:var(--accent)] text-black"
-                        : "text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
-                    }`}
-                    type="button"
-                  >
-                    Сериалы
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {error ? (
-              <div className="mt-6 rounded-2xl border border-[color:var(--danger)]/30 bg-[color:var(--danger-soft)] p-4 text-sm text-[color:var(--foreground)]">
-                <div className="font-medium">Ошибка</div>
-                <div className="mt-1 whitespace-pre-wrap text-[color:var(--muted)]">{error}</div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={resetAndReload}
-                    className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-4 py-2 text-xs text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
-                  >
-                    Повторить
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {!isLoading && !error && isSearchMode && items.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
-                <div className="text-sm font-medium text-[color:var(--foreground)]">Контент не найден</div>
-                <div className="mt-1 text-xs text-[color:var(--muted)]">
-                  Попробуй другой запрос или вернись на главную.
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      clearSearch();
-                      router.push("/");
-                    }}
-                    className="rounded-xl bg-[color:var(--accent)] px-4 py-2 text-xs font-medium text-black hover:opacity-90"
-                  >
-                    На главную
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            {PaginationBlock}
-
-            <div className="mt-6 flex flex-col gap-3">
-              {visibleItems.map((v) => (
-                <VideoRowCard key={`${v.id}-${v.kp_id ?? "nokp"}`} video={v} />
-              ))}
+              {PaginationBlock}
             </div>
 
             {isLoading

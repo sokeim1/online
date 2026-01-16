@@ -4,7 +4,6 @@ import { notFound, permanentRedirect } from "next/navigation";
 import Image from "next/image";
 
 import { Header } from "@/components/Header";
-import { MovieSearchBar } from "@/components/MovieSearchBar";
 import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
 import { VibixRendexPlayer } from "@/components/VibixRendexPlayer";
 import { PosterLightbox } from "@/components/PosterLightbox";
@@ -102,9 +101,50 @@ export default async function MoviePage({
   const backdropSrc = proxyImageUrl(video.backdrop_url);
   const primaryCountry = video.country?.filter(Boolean)?.[0] ?? null;
   const primaryGenre = video.genre?.filter(Boolean)?.[0] ?? null;
+  const genres = video.genre?.filter(Boolean) ?? null;
   const voiceoverNames = (video.voiceovers ?? []).map((v) => v.name).filter(Boolean);
   const voiceoverText = voiceoverNames.slice(0, 3).join(", ");
   const hasMoreVoiceovers = voiceoverNames.length > 3;
+
+  function parseRating(raw: unknown): number | null {
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string") {
+      const s = raw.trim().replace(/,/g, ".");
+      const m = s.match(/-?\d+(?:\.\d+)?/);
+      if (!m) return null;
+      const n = Number.parseFloat(m[0]);
+      return Number.isFinite(n) ? n : null;
+    }
+    if (raw && typeof raw === "object") {
+      const r = raw as Record<string, unknown>;
+      return (
+        parseRating(r.rating) ??
+        parseRating(r.value) ??
+        parseRating(r.score) ??
+        parseRating(r.kp_rating) ??
+        parseRating(r.imdb_rating)
+      );
+    }
+    return null;
+  }
+
+  const kpRating = parseRating((video as unknown as { kp_rating?: unknown }).kp_rating);
+  const imdbRating = parseRating((video as unknown as { imdb_rating?: unknown }).imdb_rating);
+
+  const structuredRating = kpRating ?? imdbRating;
+
+  function parseFirstNumber(raw: string | null | undefined): number | null {
+    const s = String(raw ?? "");
+    const m = s.match(/\d+/);
+    if (!m) return null;
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function isNumericLabel(raw: string | null | undefined): boolean {
+    const s = String(raw ?? "").trim();
+    return !!s && /^\d+$/.test(s);
+  }
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -115,10 +155,10 @@ export default async function MoviePage({
     image: [video.poster_url, video.backdrop_url].filter(Boolean),
     datePublished: video.year ? `${video.year}-01-01` : undefined,
     aggregateRating:
-      video.kp_rating || video.imdb_rating
+      structuredRating != null
         ? {
             "@type": "AggregateRating",
-            ratingValue: (video.kp_rating ?? video.imdb_rating) as number,
+            ratingValue: structuredRating,
             bestRating: 10,
             ratingCount: 1,
           }
@@ -144,15 +184,11 @@ export default async function MoviePage({
       />
       <Header />
 
-      <main className="mx-auto w-full max-w-6xl px-4 pb-14 pt-5 sm:pb-20 sm:pt-8">
+      <main className="mx-auto w-full max-w-6xl px-3 pb-14 pt-4 sm:px-4 sm:pb-20 sm:pt-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link href="/" className="text-sm text-[color:var(--muted)] hover:text-[color:var(--foreground)]">
             ← Назад к каталогу
           </Link>
-
-          <div className="w-full sm:w-[520px]">
-            <MovieSearchBar />
-          </div>
         </div>
 
         <div className="mt-4 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] sm:mt-6">
@@ -172,16 +208,16 @@ export default async function MoviePage({
             <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--background)] via-[color:var(--background)]/30 to-transparent" />
           </div>
 
-          <div className="px-5 pb-7 pt-5 sm:px-6 sm:pb-8 sm:pt-6">
-            <div className="grid gap-6 md:grid-cols-[260px_1fr]">
-              <div className="relative h-[320px] w-[230px] shrink-0 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] shadow-[0_20px_60px_rgba(0,0,0,0.55)]">
+          <div className="px-3 pb-6 pt-4 sm:px-6 sm:pb-8 sm:pt-6">
+            <div className="grid gap-4 sm:gap-6 md:grid-cols-[260px_1fr]">
+              <div className="relative mx-auto aspect-[2/3] w-full max-w-[230px] shrink-0 overflow-hidden rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] shadow-[0_20px_60px_rgba(0,0,0,0.55)] md:mx-0 md:max-w-[260px]">
                 {posterSrc ? (
                   <>
                     <Image
                       src={posterSrc}
                       alt={title}
                       fill
-                      sizes="230px"
+                      sizes="(min-width: 768px) 260px, 70vw"
                       unoptimized
                       className="object-cover"
                     />
@@ -201,71 +237,90 @@ export default async function MoviePage({
                 </h1>
 
                 <div className="mt-4 space-y-2 text-sm text-[color:var(--foreground)]">
-                  <div>
-                    <span className="text-[color:var(--muted)]">{primaryCountry ?? "—"}</span>
-                    {video.year ? <span className="text-[color:var(--muted)]">, {video.year}</span> : null}
-                  </div>
-
-                  <div className="text-[color:var(--muted)]">
-                    {video.genre?.length ? video.genre.join(", ") : "Жанры: —"}
-                  </div>
-
-                  <div className="grid gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4 text-sm">
+                  <div className="grid gap-2 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 text-sm sm:p-4">
                     <div className="flex flex-wrap gap-x-8 gap-y-1">
-                      <div>
-                        <span className="text-[color:var(--muted)]">Время:</span>{" "}
-                        <span className="text-[color:var(--foreground)]">
-                          {video.duration ? `${video.duration} мин` : "—"}
-                        </span>
-                      </div>
+                      {primaryCountry ? (
+                        <div>
+                          <span className="text-[color:var(--muted)]">Страна:</span>{" "}
+                          <span className="text-[color:var(--foreground)]">{primaryCountry}</span>
+                        </div>
+                      ) : null}
+                      {video.year ? (
+                        <div>
+                          <span className="text-[color:var(--muted)]">Год:</span>{" "}
+                          <span className="text-[color:var(--foreground)]">{video.year}</span>
+                        </div>
+                      ) : null}
+                      {video.genre?.length ? (
+                        <div>
+                          <span className="text-[color:var(--muted)]">Жанры:</span>{" "}
+                          <span className="text-[color:var(--foreground)]">{video.genre.join(", ")}</span>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex flex-wrap gap-x-8 gap-y-1">
+                      {video.type !== "serial" && video.duration ? (
+                        <div>
+                          <span className="text-[color:var(--muted)]">Время:</span>{" "}
+                          <span className="text-[color:var(--foreground)]">{video.duration} мин</span>
+                        </div>
+                      ) : null}
                       <div>
                         <span className="text-[color:var(--muted)]">Тип:</span>{" "}
                         <span className="text-[color:var(--foreground)]">
                           {video.type === "serial" ? "Сериал" : "Фильм"}
                         </span>
                       </div>
-                      {video.type === "serial" ? (
+                      {video.type === "serial" && episodesCount != null ? (
                         <div>
                           <span className="text-[color:var(--muted)]">Серий:</span>{" "}
-                          <span className="text-[color:var(--foreground)]">{episodesCount ?? "—"}</span>
+                          <span className="text-[color:var(--foreground)]">{episodesCount}</span>
                         </div>
                       ) : null}
-                      <div>
-                        <span className="text-[color:var(--muted)]">Качество:</span>{" "}
-                        <span className="text-[color:var(--foreground)]">{video.quality}</span>
-                      </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-3 pt-2">
-                      <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
-                        <div className="text-[10px] text-[color:var(--muted)]">Кинопоиск</div>
-                        <div className="text-sm font-semibold text-[color:var(--foreground)]">{video.kp_rating ?? "—"}</div>
+                    {kpRating != null || imdbRating != null ? (
+                      <div className="flex flex-wrap gap-3 pt-2">
+                        {kpRating != null ? (
+                          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
+                            <div className="text-[10px] text-[color:var(--muted)]">Кинопоиск</div>
+                            <div className="text-sm font-semibold text-[color:var(--foreground)]">{kpRating}</div>
+                          </div>
+                        ) : null}
+                        {imdbRating != null ? (
+                          <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
+                            <div className="text-[10px] text-[color:var(--muted)]">IMDb</div>
+                            <div className="text-sm font-semibold text-[color:var(--foreground)]">{imdbRating}</div>
+                          </div>
+                        ) : null}
                       </div>
-                      <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] px-3 py-2">
-                        <div className="text-[10px] text-[color:var(--muted)]">IMDb</div>
-                        <div className="text-sm font-semibold text-[color:var(--foreground)]">{video.imdb_rating ?? "—"}</div>
-                      </div>
-                    </div>
+                    ) : null}
 
-                    <div className="pt-2 text-sm">
-                      <span className="text-[color:var(--muted)]">Озвучка:</span>{" "}
-                      <span className="text-[color:var(--foreground)]">
-                        {voiceoverText || "—"}
-                        {hasMoreVoiceovers ? "…" : ""}
-                      </span>
-                      <span className="ml-2 text-xs text-[color:var(--muted)]">Все</span>
-                    </div>
+                    {voiceoverText ? (
+                      <div className="pt-2 text-sm">
+                        <span className="text-[color:var(--muted)]">Озвучка:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">
+                          {voiceoverText}
+                          {hasMoreVoiceovers ? "…" : ""}
+                        </span>
+                        <span className="ml-2 text-xs text-[color:var(--muted)]">Все</span>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="mt-6">
                   {video.description || video.description_short ? (
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
-                      {video.description ?? video.description_short}
-                    </p>
-                  ) : (
-                    <p className="text-sm text-[color:var(--muted)]">Описание отсутствует.</p>
-                  )}
+                    <details className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-[color:var(--foreground)]">
+                        Описание
+                      </summary>
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
+                        {video.description ?? video.description_short}
+                      </p>
+                    </details>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -301,15 +356,30 @@ export default async function MoviePage({
                         className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4"
                       >
                         <summary className="cursor-pointer text-sm font-medium text-[color:var(--foreground)]">
-                          {s.name}
+                          {(() => {
+                            const sn = parseFirstNumber(s.name);
+                            return sn ? `Сезон ${sn}` : s.name;
+                          })()}
                         </summary>
                         <div className="mt-3 grid grid-cols-1 gap-2">
-                          {(s.series ?? []).map((ep) => (
+                          {(s.series ?? []).map((ep, idx) => (
                             <div
                               key={ep.id}
-                              className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--muted)]"
+                              className="flex items-start justify-between gap-4 rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2"
                             >
-                              {ep.name}
+                              {(() => {
+                                const epNum = parseFirstNumber(ep.name) ?? idx + 1;
+                                const rawName = String(ep.name ?? "").trim();
+                                const showTitle = rawName && !isNumericLabel(rawName);
+                                return (
+                                  <>
+                                    <div className="shrink-0 text-xs text-[color:var(--muted)]">Серия {epNum}</div>
+                                    <div className="min-w-0 text-xs text-[color:var(--foreground)]">
+                                      {showTitle ? rawName : null}
+                                    </div>
+                                  </>
+                                );
+                              })()}
                             </div>
                           ))}
                         </div>
@@ -320,7 +390,15 @@ export default async function MoviePage({
               </section>
             ) : null}
 
-            <SimilarVideosScroller genre={primaryGenre} excludeKpId={id} title="Похожие" />
+            <SimilarVideosScroller
+              genres={genres}
+              seedTitle={title}
+              year={video.year}
+              country={primaryCountry}
+              type={video.type}
+              excludeKpId={id}
+              title="Похожие"
+            />
           </div>
         </div>
       </main>

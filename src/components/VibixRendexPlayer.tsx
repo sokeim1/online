@@ -45,12 +45,6 @@ export function VibixRendexPlayer({
     } catch {
     }
 
-    try {
-      window.dispatchEvent(new Event("DOMContentLoaded"));
-      window.dispatchEvent(new Event("load"));
-    } catch {
-    }
-
     const el = insRef.current;
     if (el && typeof MutationObserver !== "undefined") {
       observer = new MutationObserver(() => {
@@ -96,6 +90,7 @@ export function VibixRendexPlayer({
           <div className="absolute inset-0 bg-black/50" />
         </div>
       ) : null}
+
       <ins
         ref={insRef}
         data-publisher-id={publisherId}
@@ -103,6 +98,7 @@ export function VibixRendexPlayer({
         data-id={id}
         className="absolute inset-0 block h-full w-full"
       />
+
       {showFallback ? (
         <iframe
           src={fallbackIframeUrl}

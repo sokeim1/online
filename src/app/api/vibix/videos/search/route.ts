@@ -5,6 +5,7 @@ import {
   getVibixVideoByKpId,
   getVibixVideoLinks,
   searchVibixVideosByName,
+  type VibixVideosLinksQuery,
 } from "@/lib/vibix";
 
 export const runtime = "nodejs";
@@ -122,6 +123,19 @@ type FuzzyCacheEntry = {
 };
 
 const fuzzyCache = new Map<string, FuzzyCacheEntry>();
+
+function stableKeyPart(q: VibixVideosLinksQuery): string {
+  const sorted = <T extends number | string>(arr: T[] | undefined) => (arr ? arr.slice().sort().join(",") : "");
+  return [
+    q.type ?? "",
+    sorted(q.categoryIds),
+    sorted(q.genreIds),
+    sorted(q.countryIds),
+    sorted(q.tagIds),
+    sorted(q.voiceoverIds),
+    sorted((q.years ?? []).map((y) => String(y))),
+  ].join("|");
+}
 
 function normalizeText(input: string): string {
   return input
@@ -295,10 +309,11 @@ function rankAndDedupe(items: CatalogItem[], rawQuery: string): CatalogItem[] {
 
 async function fuzzySearchPaged(
   rawQuery: string,
+  baseQuery: VibixVideosLinksQuery,
   targetCount: number,
   maxPagesPerRequest: number,
 ): Promise<FuzzyCacheEntry> {
-  const key = normalizeText(rawQuery);
+  const key = `${normalizeText(rawQuery)}|${stableKeyPart(baseQuery)}`;
   const now = Date.now();
   const ttlMs = 60 * 60 * 1000;
 
@@ -311,7 +326,11 @@ async function fuzzySearchPaged(
   if (existing && now - existing.ts < ttlMs) {
     entry = existing;
   } else {
-    const first = await getVibixVideoLinks({ page: 1, limit: 20 });
+    const first = await getVibixVideoLinks({
+      ...baseQuery,
+      page: 1,
+      limit: 20,
+    });
     entry = {
       ts: now,
       scannedUpToPage: 0,
@@ -328,7 +347,11 @@ async function fuzzySearchPaged(
     p <= entry.lastPage && scannedThisRequest < maxPagesPerRequest && entry.matches.length < targetCount;
     p += 1
   ) {
-    const resp = await getVibixVideoLinks({ page: p, limit: 20 });
+    const resp = await getVibixVideoLinks({
+      ...baseQuery,
+      page: p,
+      limit: 20,
+    });
     entry.lastPage = resp.meta?.last_page ?? entry.lastPage;
     entry.perPage = resp.meta?.per_page ?? entry.perPage;
 
@@ -346,11 +369,71 @@ async function fuzzySearchPaged(
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
+  function parseIntList(keys: string[]): number[] {
+    const out: number[] = [];
+    for (const k of keys) {
+      for (const raw of searchParams.getAll(k)) {
+        const n = Number.parseInt(raw, 10);
+        if (Number.isFinite(n)) out.push(n);
+      }
+    }
+    return Array.from(new Set(out));
+  }
+
+  function parseYearRange() {
+    const fromRaw = searchParams.get("yearFrom");
+    const toRaw = searchParams.get("yearTo");
+    const from = fromRaw ? Number.parseInt(fromRaw, 10) : null;
+    const to = toRaw ? Number.parseInt(toRaw, 10) : null;
+    if (!from && !to) return null;
+    const safeFrom = Number.isFinite(from as number) && (from as number) >= 1800 ? (from as number) : null;
+    const safeTo = Number.isFinite(to as number) && (to as number) <= 2100 ? (to as number) : null;
+    if (safeFrom == null && safeTo == null) return null;
+    const start = safeFrom ?? 1800;
+    const end = safeTo ?? new Date().getFullYear();
+    if (end < start) return null;
+    const span = end - start + 1;
+    if (span > 250) return null;
+    const years: number[] = [];
+    for (let y = start; y <= end; y += 1) years.push(y);
+    return years;
+  }
+
   const name = (searchParams.get("name") ?? "").trim();
   const pageRaw = searchParams.get("page") ?? undefined;
   const limitRaw = searchParams.get("limit") ?? undefined;
   const suggest = searchParams.get("suggest") === "1";
   const enrich = searchParams.get("enrich") === "1";
+
+  const typeRaw = searchParams.get("type") ?? undefined;
+  const type: VibixVideosLinksQuery["type"] = typeRaw === "movie" || typeRaw === "serial" ? typeRaw : undefined;
+  const categoryIds = parseIntList(["categoryId", "category[]"]);
+  const genreIds = parseIntList(["genreId", "genre[]"]);
+  const countryIds = parseIntList(["countryId", "country[]"]);
+  const tagIds = parseIntList(["tagId", "tag[]"]);
+  const voiceoverIds = parseIntList(["voiceoverId", "voiceover[]"]);
+  const excludeTagIds = parseIntList(["excludeTagId", "excludeTag[]"]);
+  const years = parseYearRange();
+
+  const baseQuery: VibixVideosLinksQuery = {
+    type,
+    categoryIds: categoryIds.length ? categoryIds : undefined,
+    genreIds: genreIds.length ? genreIds : undefined,
+    countryIds: countryIds.length ? countryIds : undefined,
+    tagIds: tagIds.length ? tagIds : undefined,
+    voiceoverIds: voiceoverIds.length ? voiceoverIds : undefined,
+    years: years?.length ? years : undefined,
+  };
+
+  const hasLinkFilters = !!(
+    baseQuery.categoryIds?.length ||
+    baseQuery.genreIds?.length ||
+    baseQuery.countryIds?.length ||
+    baseQuery.voiceoverIds?.length ||
+    baseQuery.years?.length ||
+    baseQuery.tagIds?.length ||
+    excludeTagIds.length
+  );
 
   if (!name) {
     return NextResponse.json(
@@ -373,7 +456,7 @@ export async function GET(req: Request) {
 
     // 1) Try Vibix direct search for len>=3.
     // For suggestions we still try it first, because fuzzy scanning may miss titles far in the catalog.
-    if (qLen >= 3) {
+    if (qLen >= 3 && !hasLinkFilters) {
       try {
         const direct = await searchVibixVideosByName({
           name,
@@ -381,7 +464,7 @@ export async function GET(req: Request) {
           limit: safeLimit,
         });
 
-        directData = direct.data.filter((v) => v.kp_id != null);
+        directData = direct.data.filter((v) => v.kp_id != null && (!type || v.type === type));
       } catch {
         // ignore and continue to fallback
       }
@@ -394,9 +477,10 @@ export async function GET(req: Request) {
       const tagId = tc ? resolveTagId(tc.tags, name) : null;
       if (tagId) {
         const tagged = await getVibixVideoLinks({
+          ...baseQuery,
           page: safePage,
           limit: safeLimit,
-          tagIds: [tagId],
+          tagIds: Array.from(new Set([...(baseQuery.tagIds ?? []), tagId])),
         });
         tagData = tagged.data.filter((v) => v.kp_id != null);
       }
@@ -404,9 +488,39 @@ export async function GET(req: Request) {
 
     const baseMerged = rankAndDedupe(directData.concat(tagData), name);
 
+    const maybeAugmentWithFuzzy = async (current: CatalogItem[], targetCount: number, maxPages: number) => {
+      if (qLen < 2) return current;
+      if (current.length >= targetCount) return current;
+      const entry = await fuzzySearchPaged(name, baseQuery, targetCount, maxPages);
+      const fuzzy = entry.matches.filter((v) => v.kp_id != null);
+      return rankAndDedupe(current.concat(fuzzy), name);
+    };
+
+    const shouldExcludeByTags = async (kpId: number): Promise<boolean> => {
+      if (!excludeTagIds.length) return false;
+      const d = await getVibixVideoByKpId(kpId);
+      const ids = (d.tags ?? []).map((t) => t.id).filter((n) => Number.isFinite(n));
+      return ids.some((id) => excludeTagIds.includes(id));
+    };
+
+    const filterExcluded = async (items: CatalogItem[]): Promise<CatalogItem[]> => {
+      if (!excludeTagIds.length) return items;
+      const checks = await Promise.allSettled(
+        items.map(async (v) => {
+          if (!v.kp_id) return { keep: false as const, v };
+          const excluded = await shouldExcludeByTags(v.kp_id);
+          return { keep: !excluded, v };
+        }),
+      );
+      return checks
+        .filter((r) => r.status === "fulfilled" && r.value.keep)
+        .map((r) => (r as PromiseFulfilledResult<{ keep: boolean; v: CatalogItem }>).value.v);
+    };
+
     // Suggestions must be fast: do not run expensive fuzzy scanning.
     if (suggest) {
-      const data = baseMerged.slice(0, safeLimit);
+      const merged = await maybeAugmentWithFuzzy(baseMerged, safeLimit, 8);
+      const data = await filterExcluded(merged.slice(0, safeLimit));
       const res = NextResponse.json({
         data,
         links: { first: "", last: "", prev: null, next: null },
@@ -428,13 +542,18 @@ export async function GET(req: Request) {
     }
 
     // Normal search: prefer fast merged results and only fallback to fuzzy if nothing found.
-    if (baseMerged.length > 0) {
-      const total = baseMerged.length;
+    const targetCount = safePage * safeLimit;
+    const merged = await maybeAugmentWithFuzzy(baseMerged, targetCount, 40);
+
+    if (merged.length > 0) {
+      const filteredMerged = await filterExcluded(merged);
+
+      const total = filteredMerged.length;
       const last_page = Math.max(1, Math.ceil(total / safeLimit));
       const current_page = Math.min(safePage, last_page);
       const from = total ? (current_page - 1) * safeLimit + 1 : null;
       const to = total ? Math.min(current_page * safeLimit, total) : null;
-      const pageItems = baseMerged.slice((current_page - 1) * safeLimit, current_page * safeLimit);
+      const pageItems = filteredMerged.slice((current_page - 1) * safeLimit, current_page * safeLimit);
       const enriched = enrich ? await enrichLinks(pageItems) : pageItems;
 
       const res = NextResponse.json({
@@ -457,8 +576,7 @@ export async function GET(req: Request) {
       return res;
     }
 
-    const targetCount = safePage * safeLimit;
-    const entry = await fuzzySearchPaged(name, targetCount, 80);
+    const entry = await fuzzySearchPaged(name, baseQuery, targetCount, 80);
     const mergedMatches = rankAndDedupe(entry.matches.filter((v) => v.kp_id != null), name);
     const total = mergedMatches.length;
     const last_page = Math.max(1, Math.ceil(total / safeLimit));

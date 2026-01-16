@@ -10,9 +10,10 @@ function pickTitle(v: VibixVideoLink): string {
 }
 
 function formatRating(v: VibixVideoLink): string | null {
-  const r = v.kp_rating ?? v.imdb_rating;
-  if (typeof r !== "number" || !Number.isFinite(r)) return null;
-  return r.toFixed(2);
+  const raw = (v.kp_rating ?? v.imdb_rating) as unknown;
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseFloat(raw) : NaN;
+  if (!Number.isFinite(n)) return null;
+  return n.toFixed(2);
 }
 
 export function VideoRowCard({ video }: { video: VibixVideoLink }) {
@@ -25,64 +26,85 @@ export function VideoRowCard({ video }: { video: VibixVideoLink }) {
   const episodes = video.type === "serial" ? video.episodes_count ?? null : null;
 
   const content = (
-    <div className="rounded-[28px] bg-[color:var(--surface)] p-[2px] shadow-[0_10px_35px_rgba(0,0,0,0.35)]">
-      <div className="group relative flex w-full gap-4 overflow-hidden rounded-[26px] border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:gap-5 sm:p-5">
-        <div className="relative h-[150px] w-[110px] shrink-0 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] sm:h-[190px] sm:w-[140px]">
-        {posterSrc ? (
-          <Image
-            src={posterSrc}
-            alt={title}
-            fill
-            sizes="(min-width: 640px) 140px, 110px"
-            unoptimized
-            className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-          />
+    <div className="group flex w-full items-start gap-4 py-5 sm:gap-8 sm:py-8">
+      <div className="shrink-0">
+        {href ? (
+          <Link href={href} className="relative block h-[180px] w-[125px] overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] sm:h-[270px] sm:w-[190px]">
+            {posterSrc ? (
+              <Image
+                src={posterSrc}
+                alt={title}
+                fill
+                sizes="(min-width: 640px) 190px, 150px"
+                unoptimized
+                className="object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
+                Нет постера
+              </div>
+            )}
+
+            {rating ? (
+              <div className="absolute left-2 top-2 rounded-md bg-orange-600 px-2 py-1 text-xs font-semibold text-white shadow">
+                {rating}
+              </div>
+            ) : null}
+          </Link>
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
-            Нет постера
+          <div className="relative h-[180px] w-[125px] overflow-hidden rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-hover)] sm:h-[270px] sm:w-[190px]">
+            {posterSrc ? (
+              <Image
+                src={posterSrc}
+                alt={title}
+                fill
+                sizes="(min-width: 640px) 190px, 150px"
+                unoptimized
+                className="object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
+                Нет постера
+              </div>
+            )}
+            {rating ? (
+              <div className="absolute left-2 top-2 rounded-md bg-orange-600 px-2 py-1 text-xs font-semibold text-white shadow">
+                {rating}
+              </div>
+            ) : null}
           </div>
         )}
-
-        {rating ? (
-          <div className="absolute left-2 top-2 rounded-md bg-orange-600 px-2 py-1 text-xs font-semibold text-white shadow">
-            {rating}
-          </div>
-        ) : null}
       </div>
 
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-sm font-semibold leading-snug text-[color:var(--foreground)] sm:text-lg">
+      <div className="min-w-0 flex-1">
+        {href ? (
+          <Link
+            href={href}
+            className="break-words text-lg font-semibold leading-snug text-[color:var(--foreground)] transition-colors group-hover:text-[color:var(--title-hover)] sm:text-xl"
+          >
             {title}
-          </div>
+          </Link>
+        ) : (
+          <div className="break-words text-lg font-semibold leading-snug text-[color:var(--foreground)] sm:text-xl">{title}</div>
+        )}
         {video.name_eng ? (
-          <div className="mt-0.5 truncate text-xs text-[color:var(--muted)]">{video.name_eng}</div>
+          <div className="mt-1 truncate text-sm text-[color:var(--muted)]">{video.name_eng}</div>
         ) : null}
 
-          <div className="mt-4 space-y-1.5 text-sm text-[color:var(--muted)]">
+        <div className="mt-3 space-y-2 text-sm text-[color:var(--muted)] sm:mt-4 sm:text-base">
           <div>
             {country ? `${country}, ` : ""}
             {video.year ?? "—"}
           </div>
+          <div className="text-[color:var(--muted)]">{genres.length ? genres.join(", ") : "Жанры: —"}</div>
           <div className="text-[color:var(--muted)]">
-            {genres.length ? genres.join(", ") : "Жанры: —"}
-          </div>
-          <div className="text-[color:var(--muted)]">
-            {video.type === "serial" ? "Сериал" : "Видео"}
-            {video.quality ? ` • ${video.quality}` : ""}
+            {video.type === "serial" ? "Сериал" : "Фильм"}
             {episodes != null ? ` • ${episodes} серий` : ""}
           </div>
         </div>
       </div>
-
-      </div>
     </div>
   );
 
-  return href ? (
-    <Link href={href} className="block">
-      {content}
-    </Link>
-  ) : (
-    content
-  );
+  return content;
 }

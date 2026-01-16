@@ -192,6 +192,11 @@ export async function getVibixGenres(): Promise<VibixTaxonomyItem[]> {
   return res.data ?? [];
 }
 
+export async function getVibixCategories(): Promise<VibixTaxonomyItem[]> {
+  const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/categories");
+  return res.data ?? [];
+}
+
 export async function getVibixCountries(): Promise<VibixTaxonomyItem[]> {
   const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/countries");
   return res.data ?? [];
@@ -199,6 +204,11 @@ export async function getVibixCountries(): Promise<VibixTaxonomyItem[]> {
 
 export async function getVibixTags(): Promise<VibixTaxonomyItem[]> {
   const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/tags");
+  return res.data ?? [];
+}
+
+export async function getVibixVoiceovers(): Promise<VibixTaxonomyItem[]> {
+  const res = await vibixFetch<{ data: VibixTaxonomyItem[] }>("/api/v1/publisher/videos/voiceovers");
   return res.data ?? [];
 }
 
