@@ -10,7 +10,7 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 60 * 60;
+export const revalidate = 3600;
 
 type TaxonomyPayload = {
   genres: Awaited<ReturnType<typeof getVibixGenres>>;
