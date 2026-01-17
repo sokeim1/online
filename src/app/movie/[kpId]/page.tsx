@@ -5,7 +5,7 @@ import Image from "next/image";
 
 import { Header } from "@/components/Header";
 import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
-import { VibixRendexPlayer } from "@/components/VibixRendexPlayer";
+import { MoviePlayers } from "@/components/MoviePlayers";
 import { PosterLightbox } from "@/components/PosterLightbox";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
 import { proxyImageUrl } from "@/lib/imageProxy";
@@ -329,17 +329,21 @@ export default async function MoviePage({
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold text-[color:var(--foreground)]">Просмотр</h2>
               </div>
-              <div className="mt-3 overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
-                <div className="relative aspect-video w-full">
-                  <VibixRendexPlayer
-                    publisherId="676077867"
-                    type={video.type === "serial" ? "series" : "movie"}
-                    id={String(video.id)}
-                    title={title}
-                    fallbackIframeUrl={video.iframe_url}
-                    posterSrc={posterSrc}
-                  />
-                </div>
+              <div className="mt-3">
+                <MoviePlayers
+                  storageKey={`movie_player_${id}`}
+                  kpId={id}
+                  title={title}
+                  year={video.year}
+                  imdbId={video.imdb_id}
+                  vibix={{
+                    publisherId: "676077867",
+                    type: video.type === "serial" ? "series" : "movie",
+                    id: String(video.id),
+                    fallbackIframeUrl: video.iframe_url,
+                    posterSrc,
+                  }}
+                />
               </div>
             </section>
 

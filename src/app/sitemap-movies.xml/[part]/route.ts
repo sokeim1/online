@@ -96,7 +96,6 @@ async function buildMoviesSitemap(
     }
   };
 
-  // Virtual pages are laid out as: movie pages [1..lastMovies], then serial pages [1..lastSerials]
   const movieStart = virtualStart;
   const movieEnd = Math.min(virtualEnd, lastMoviesPageOverall);
   const hasMovies = movieStart <= movieEnd;
