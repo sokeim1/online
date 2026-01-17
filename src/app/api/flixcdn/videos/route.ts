@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { hasDatabaseUrl } from "@/lib/db";
 import { flixcdnSearch, flixcdnUpdates, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
+import { listCatalogFromDb } from "@/lib/flixcdnIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +32,69 @@ export async function GET(req: Request) {
     res.headers.set("x-cache-hit", "1");
     res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
     return res;
+  }
+
+  const typeRaw = (searchParams.get("type") ?? "").trim();
+  const type = typeRaw === "movie" || typeRaw === "serial" ? typeRaw : null;
+
+  if (hasDatabaseUrl()) {
+    try {
+      const r = await listCatalogFromDb({ offset, limit: safeLimit, type });
+      if (r.total > 0) {
+        const out = r.items.map((x) => {
+          const uploadedAt = x.created_at ?? "";
+          return {
+            id: Number(x.flixcdn_id),
+            name: x.title_orig ?? x.title_rus ?? "",
+            name_rus: x.title_rus,
+            name_eng: null,
+            type: x.type,
+            year: x.year,
+            kp_id: x.kp_id,
+            imdb_id: x.imdb_id,
+            iframe_url: x.iframe_url ?? "",
+            poster_url: x.poster_url,
+            quality: x.quality ?? "",
+            uploaded_at: uploadedAt,
+            genre: x.genres,
+            country: x.countries,
+            kp_rating: null,
+            imdb_rating: null,
+            episodes_count: x.episodes_count,
+          };
+        });
+
+        const lastPage = r.total > 0 ? Math.max(1, Math.ceil(r.total / safeLimit)) : 1;
+        const hasNext = safePage < lastPage;
+
+        const payload = {
+          data: out,
+          links: { first: "", last: "", prev: safePage > 1 ? "1" : null, next: hasNext ? "1" : null },
+          meta: {
+            current_page: safePage,
+            from: out.length ? offset + 1 : null,
+            last_page: lastPage,
+            links: [],
+            path: "",
+            per_page: safeLimit,
+            to: out.length ? offset + out.length : null,
+            total: r.total,
+          },
+          success: true,
+          message: "",
+          source: "db",
+        };
+
+        cache.set(cacheKey, { ts: Date.now(), payload });
+
+        const res = NextResponse.json(payload);
+        res.headers.set("x-source", "db");
+        res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+        return res;
+      }
+    } catch {
+      // ignore and fallback to upstream
+    }
   }
 
   try {

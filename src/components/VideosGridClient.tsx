@@ -472,6 +472,12 @@ export function VideosGridClient({
         setItems(withOrdering);
 
         if (url.startsWith("/api/flixcdn/")) {
+          const source = (json as unknown as { source?: unknown })?.source;
+          if (source === "db") {
+            setLastPage(json.meta?.last_page ?? null);
+            return;
+          }
+
           const hasNext = !!json.links?.next;
           const reachedEnd = !hasNext || base.length < requestedLimit;
           if (reachedEnd) {
