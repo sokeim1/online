@@ -1,4 +1,6 @@
-import { getVibixVideoLinks } from "@/lib/vibix";
+import { hasDatabaseUrl } from "@/lib/db";
+import { dbQuery } from "@/lib/db";
+import { ensureFlixcdnSchema } from "@/lib/flixcdnIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,23 +53,26 @@ function escapeXml(s: string): string {
 }
 
 async function buildSitemapIndex(baseUrl: string): Promise<string> {
-  const limit = 20;
-  const maxPartsTotal = 10;
-
-  const firstMovies = await getVibixVideoLinks({ type: "movie", page: 1, limit });
-  const lastMoviesPage = firstMovies.meta?.last_page ?? 1;
-  const firstSerials = await getVibixVideoLinks({ type: "serial", page: 1, limit });
-  const lastSerialsPage = firstSerials.meta?.last_page ?? 1;
-
-  const totalPages = Math.max(1, lastMoviesPage + lastSerialsPage);
-  const pagesPerSitemap = Math.max(1, Math.ceil(totalPages / maxPartsTotal));
-  const totalSitemaps = Math.min(maxPartsTotal, Math.max(1, Math.ceil(totalPages / pagesPerSitemap)));
   const lastmod = new Date().toISOString();
 
   const sitemaps: Array<{ loc: string; lastmod?: string }> = [];
   sitemaps.push({ loc: `${baseUrl}/sitemap-static.xml`, lastmod });
-  for (let part = 1; part <= totalSitemaps; part += 1) {
-    sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
+
+  if (hasDatabaseUrl()) {
+    await ensureFlixcdnSchema();
+    const totalRes = await dbQuery<{ count: string }>(
+      `SELECT COUNT(*)::text AS count
+       FROM flixcdn_videos
+       WHERE kp_id IS NOT NULL;`,
+    );
+    const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
+
+    const urlsPerSitemap = 50000;
+    const totalSitemaps = Math.max(1, Math.ceil(total / urlsPerSitemap));
+    const safeTotal = Math.min(5000, totalSitemaps);
+    for (let part = 1; part <= safeTotal; part += 1) {
+      sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
+    }
   }
 
   const body = sitemaps

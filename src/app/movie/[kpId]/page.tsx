@@ -7,7 +7,9 @@ import { Header } from "@/components/Header";
 import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
 import { MoviePlayers } from "@/components/MoviePlayers";
 import { PosterLightbox } from "@/components/PosterLightbox";
-import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
+import { hasDatabaseUrl } from "@/lib/db";
+import { getFlixcdnVideoFromDbByKpId } from "@/lib/flixcdnIndex";
+import { getVibixSerialByImdbId, getVibixSerialByKpId, getVibixVideoByImdbId, getVibixVideoByKpId } from "@/lib/vibix";
 import { flixcdnSearch, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
 import { proxyImageUrl } from "@/lib/imageProxy";
 import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
@@ -46,6 +48,17 @@ function pickTitle(v: {
   return v.name_rus ?? v.name_eng ?? v.name;
 }
 
+function guessTitleFromMovieParam(raw: string): string | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+  const cleaned = s
+    .replace(/\.html$/i, "")
+    .replace(/^\d+-/, "")
+    .replace(/[-_]+/g, " ")
+    .trim();
+  return cleaned.length >= 2 ? cleaned : null;
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ kpId: string }> },
 ): Promise<Metadata> {
@@ -60,15 +73,80 @@ export async function generateMetadata(
     try {
       video = await getVibixVideoByKpId(id);
     } catch {
-      const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 1, offset: 0 });
-      const first = fl.result?.[0];
+      if (hasDatabaseUrl()) {
+        const row = await getFlixcdnVideoFromDbByKpId(id).catch(() => null);
+        if (row) {
+          video = {
+            name: row.title_rus ?? row.title_orig ?? "",
+            name_rus: row.title_rus,
+            name_eng: row.title_orig,
+            year: row.year,
+            description: null,
+            description_short: null,
+            poster_url: row.poster_url,
+            backdrop_url: null,
+          };
+        }
+      }
+
+      if (video) {
+        const title = pickTitle(video);
+        const year = video.year ? ` (${video.year})` : "";
+        const fullTitle = `${title}${year} — смотреть онлайн`;
+        const description =
+          video.description_short ??
+          video.description ??
+          "Смотри бесплатно дорамы и сериалы онлайн на Doramy Online";
+
+        const images = [video.backdrop_url, video.poster_url]
+          .filter(Boolean)
+          .map((url) => ({ url: url as string }));
+
+        const canonical = movieSlugHtmlPath(id, title);
+
+        return {
+          title: fullTitle,
+          description,
+          alternates: {
+            canonical,
+          },
+          openGraph: {
+            title: fullTitle,
+            description,
+            type: "video.movie",
+            images,
+          },
+          twitter: {
+            card: "summary_large_image",
+            title: fullTitle,
+            description,
+            images: images.map((i) => i.url),
+          },
+        };
+      }
+
+      let first: any = null;
+      try {
+        const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 5, offset: 0 });
+        first = fl.result?.find((x) => parseFlixcdnInt(x.kinopoisk_id) === id) ?? fl.result?.[0] ?? null;
+      } catch {
+      }
+
+      if (!first) {
+        const guess = guessTitleFromMovieParam(kpIdRaw);
+        if (guess) {
+          const fl2 = await flixcdnSearch({ title: guess, limit: 15, offset: 0 });
+          first = fl2.result?.find((x) => parseFlixcdnInt(x.kinopoisk_id) === id) ?? fl2.result?.[0] ?? null;
+        }
+      }
+
       if (!first) {
         return { title: "Doramy Online - Смотри бесплатно дорамы и сериалы" };
       }
       video = {
-        name: first.title_orig ?? first.title_rus ?? "",
+        name: first.title_rus ?? first.title_orig ?? "",
         name_rus: first.title_rus ?? null,
-        name_eng: null,
+        name_eng: first.title_orig ?? null,
         year: parseFlixcdnYear(first.year),
         description: first.description ?? null,
         description_short: null,
@@ -139,6 +217,8 @@ export default async function MoviePage({
     imdb_id: string | null;
     kp_rating: number | null;
     imdb_rating: number | null;
+    slogan: string | null;
+    age: string | null;
     iframe_url: string;
     poster_url: string | null;
     backdrop_url: string | null;
@@ -153,53 +233,169 @@ export default async function MoviePage({
     uploaded_at: string | null;
   };
 
-  let video: MovieVideo;
+  let video: MovieVideo | null = null;
   let vibixVideo: Awaited<ReturnType<typeof getVibixVideoByKpId>> | null = null;
   try {
     vibixVideo = await getVibixVideoByKpId(id);
-    video = vibixVideo as unknown as MovieVideo;
-  } catch {
-    let first: any = null;
-    try {
-      const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 1, offset: 0 });
-      first = fl.result?.[0] ?? null;
-    } catch {
-      notFound();
-    }
-    if (!first) notFound();
-
     video = {
-      id: first.id,
-      name: first.title_orig ?? first.title_rus ?? "",
-      name_rus: first.title_rus ?? null,
-      name_eng: null,
-      name_original: first.title_orig ?? null,
-      type: first.type === "serial" ? "serial" : "movie",
-      year: parseFlixcdnYear(first.year),
-      kp_id: parseFlixcdnInt(first.kinopoisk_id),
-      imdb_id: typeof first.imdb_id === "string" ? first.imdb_id : null,
-      kp_rating: null,
-      imdb_rating: null,
-      iframe_url: typeof first.iframe_url === "string" ? first.iframe_url : "",
-      poster_url: typeof first.poster === "string" ? first.poster : null,
-      backdrop_url: null,
-      duration: parseFlixcdnDurationToMinutes(first.duration),
-      quality: typeof first.quality === "string" ? first.quality : "",
-      genre: Array.isArray(first.genres) ? first.genres : null,
-      country: Array.isArray(first.countries) ? first.countries : null,
-      description: first.description ?? null,
-      description_short: null,
-      voiceovers: Array.isArray(first.translations)
-        ? first.translations
-            .map((t: { id?: unknown; title?: unknown }) => ({
-              id: Number.parseInt(String(t.id), 10) || 0,
-              name: String(t.title ?? "").trim(),
-            }))
-            .filter((t: { id: number; name: string }) => t.name)
-        : null,
-      tags: null,
-      uploaded_at: typeof first.created_at === "string" ? first.created_at : null,
+      ...(vibixVideo as unknown as MovieVideo),
+      slogan: null,
+      age: null,
     };
+  } catch {
+    if (hasDatabaseUrl()) {
+      const row = await getFlixcdnVideoFromDbByKpId(id).catch(() => null);
+      if (row) {
+        video = {
+          id: Number(row.flixcdn_id),
+          name: row.title_rus ?? row.title_orig ?? "",
+          name_rus: row.title_rus,
+          name_eng: row.title_orig,
+          name_original: row.title_orig,
+          type: row.type,
+          year: row.year,
+          kp_id: row.kp_id,
+          imdb_id: row.imdb_id,
+          kp_rating: null,
+          imdb_rating: null,
+          slogan: null,
+          age: null,
+          iframe_url: row.iframe_url ?? "",
+          poster_url: row.poster_url,
+          backdrop_url: null,
+          duration: null,
+          quality: row.quality ?? "",
+          genre: row.genres,
+          country: row.countries,
+          description: null,
+          description_short: null,
+          voiceovers: null,
+          tags: null,
+          uploaded_at: row.created_at,
+        };
+      }
+    }
+
+    if (!video) {
+      let first: any = null;
+      try {
+        const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 5, offset: 0 });
+        first = fl.result?.find((x) => parseFlixcdnInt(x.kinopoisk_id) === id) ?? fl.result?.[0] ?? null;
+      } catch {
+        first = null;
+      }
+
+      if (!first) {
+        const guess = guessTitleFromMovieParam(kpIdRaw);
+        if (guess) {
+          try {
+            const fl2 = await flixcdnSearch({ title: guess, limit: 15, offset: 0 });
+            first = fl2.result?.find((x) => parseFlixcdnInt(x.kinopoisk_id) === id) ?? fl2.result?.[0] ?? null;
+          } catch {
+            first = null;
+          }
+        }
+      }
+
+      if (!first) notFound();
+
+      video = {
+        id: first.id,
+        name: first.title_rus ?? first.title_orig ?? "",
+        name_rus: first.title_rus ?? null,
+        name_eng: first.title_orig ?? null,
+        name_original: first.title_orig ?? null,
+        type: first.type === "serial" ? "serial" : "movie",
+        year: parseFlixcdnYear(first.year),
+        kp_id: parseFlixcdnInt(first.kinopoisk_id),
+        imdb_id: typeof first.imdb_id === "string" ? first.imdb_id : null,
+        kp_rating: null,
+        imdb_rating: null,
+        slogan: typeof first.slogan === "string" ? first.slogan : null,
+        age: typeof first.age === "string" ? first.age : null,
+        iframe_url: typeof first.iframe_url === "string" ? first.iframe_url : "",
+        poster_url: typeof first.poster === "string" ? first.poster : null,
+        backdrop_url: null,
+        duration: parseFlixcdnDurationToMinutes(first.duration),
+        quality: typeof first.quality === "string" ? first.quality : "",
+        genre: Array.isArray(first.genres) ? first.genres : null,
+        country: Array.isArray(first.countries) ? first.countries : null,
+        description: first.description ?? null,
+        description_short: null,
+        voiceovers: Array.isArray(first.translations)
+          ? first.translations
+              .map((t: { id?: unknown; title?: unknown }) => ({
+                id: Number.parseInt(String(t.id), 10) || 0,
+                name: String(t.title ?? "").trim(),
+              }))
+              .filter((t: { id: number; name: string }) => t.name)
+          : null,
+        tags: null,
+        uploaded_at: typeof first.created_at === "string" ? first.created_at : null,
+      };
+    }
+  }
+
+  if (!video) notFound();
+
+  // Enrich details for DB/FlixCDN fallbacks:
+  // - ratings & richer metadata from Vibix by imdb_id (when kp lookup fails)
+  // - slogan/age/description/duration from FlixCDN by kp_id or imdb_id
+  if (!vibixVideo) {
+    const imdb = String(video.imdb_id ?? "").trim();
+    if (/^tt\d+$/i.test(imdb)) {
+      vibixVideo = await getVibixVideoByImdbId(imdb).catch(() => null);
+      if (vibixVideo) {
+        // keep the already resolved player urls / IDs, but hydrate missing fields
+        video = {
+          ...video,
+          kp_id: video.kp_id ?? vibixVideo.kp_id ?? vibixVideo.kinopoisk_id ?? null,
+          imdb_id: video.imdb_id ?? vibixVideo.imdb_id ?? null,
+          kp_rating: (video as any).kp_rating ?? vibixVideo.kp_rating ?? null,
+          imdb_rating: (video as any).imdb_rating ?? vibixVideo.imdb_rating ?? null,
+          description: video.description ?? vibixVideo.description ?? null,
+          description_short: video.description_short ?? vibixVideo.description_short ?? null,
+          genre: video.genre ?? vibixVideo.genre ?? null,
+          country: video.country ?? vibixVideo.country ?? null,
+          duration: video.duration ?? vibixVideo.duration ?? null,
+          poster_url: video.poster_url ?? vibixVideo.poster_url ?? null,
+          backdrop_url: video.backdrop_url ?? vibixVideo.backdrop_url ?? null,
+          name_rus: video.name_rus ?? vibixVideo.name_rus ?? null,
+          name_eng: video.name_eng ?? vibixVideo.name_eng ?? null,
+          name_original: video.name_original ?? vibixVideo.name_original ?? null,
+          year: video.year ?? vibixVideo.year ?? null,
+        };
+      }
+    }
+  }
+
+  if (video.slogan == null || video.age == null || video.description == null || video.duration == null) {
+    const imdb = String(video.imdb_id ?? "").trim();
+    const wantByImdb = /^tt\d+$/i.test(imdb);
+    try {
+      const fl = await flixcdnSearch(
+        wantByImdb ? { imdb_id: imdb, limit: 5, offset: 0 } : { kinopoisk_id: id, limit: 5, offset: 0 },
+        { timeoutMs: 6000, attempts: 2 },
+      );
+      const first =
+        fl.result?.find((x) => parseFlixcdnInt(x.kinopoisk_id) === id) ??
+        (wantByImdb ? fl.result?.find((x) => String(x.imdb_id ?? "").toLowerCase() === imdb.toLowerCase()) : null) ??
+        fl.result?.[0] ??
+        null;
+
+      if (first) {
+        video = {
+          ...video,
+          slogan: video.slogan ?? (typeof first.slogan === "string" ? first.slogan : null),
+          age: video.age ?? (typeof first.age === "string" ? first.age : null),
+          description: video.description ?? (first.description ?? null),
+          duration: video.duration ?? parseFlixcdnDurationToMinutes(first.duration),
+          name_eng: video.name_eng ?? (first.title_orig ?? null),
+          name_original: video.name_original ?? (first.title_orig ?? null),
+        };
+      }
+    } catch {
+    }
   }
 
   const title = pickTitle(video);
@@ -278,7 +474,9 @@ export default async function MoviePage({
   };
 
   const serialInfo =
-    vibixVideo && video.type === "serial" ? await getVibixSerialByKpId(id).catch(() => null) : null;
+    vibixVideo && video.type === "serial"
+      ? await (vibixVideo.imdb_id ? getVibixSerialByImdbId(vibixVideo.imdb_id).catch(() => null) : getVibixSerialByKpId(id).catch(() => null))
+      : null;
 
   const episodesCount =
     video.type === "serial" && serialInfo?.seasons?.length
@@ -369,6 +567,27 @@ export default async function MoviePage({
                       ) : null}
                     </div>
 
+                    {video.name_eng && video.name_rus && video.name_eng !== video.name_rus ? (
+                      <div>
+                        <span className="text-[color:var(--muted)]">Оригинальное название:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">{video.name_eng}</span>
+                      </div>
+                    ) : null}
+
+                    {video.slogan ? (
+                      <div>
+                        <span className="text-[color:var(--muted)]">Слоган:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">{video.slogan}</span>
+                      </div>
+                    ) : null}
+
+                    {video.age ? (
+                      <div>
+                        <span className="text-[color:var(--muted)]">Возраст:</span>{" "}
+                        <span className="text-[color:var(--foreground)]">{video.age}</span>
+                      </div>
+                    ) : null}
+
                     <div className="flex flex-wrap gap-x-8 gap-y-1">
                       {video.type !== "serial" && video.duration ? (
                         <div>
@@ -421,16 +640,14 @@ export default async function MoviePage({
                 </div>
 
                 <div className="mt-6">
-                  {video.description || video.description_short ? (
-                    <details className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:p-4">
-                      <summary className="cursor-pointer text-sm font-semibold text-[color:var(--foreground)]">
-                        Описание
-                      </summary>
-                      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
-                        {video.description ?? video.description_short}
-                      </p>
-                    </details>
-                  ) : null}
+                  <details className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-3 sm:p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-[color:var(--foreground)]">
+                      Описание
+                    </summary>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[color:var(--muted)]">
+                      {video.description ?? video.description_short ?? "Описание отсутствует"}
+                    </p>
+                  </details>
                 </div>
               </div>
             </div>
@@ -515,7 +732,8 @@ export default async function MoviePage({
               country={primaryCountry}
               type={video.type}
               excludeKpId={id}
-              title="Похожие"
+              title="Популярные фильмы"
+              mode="popular"
             />
           </div>
         </div>

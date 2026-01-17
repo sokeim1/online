@@ -36,23 +36,8 @@ export default async function Home({ searchParams }: HomeProps) {
   const pageNum = Number.parseInt(page, 10);
   const safePage = Number.isFinite(pageNum) && pageNum > 0 ? pageNum : 1;
   const hasBrowse = typeof sp?.year === "string" || typeof sp?.genre === "string" || typeof sp?.country === "string";
-  const hasFilters =
-    typeof sp?.yearFrom === "string" ||
-    typeof sp?.yearTo === "string" ||
-    typeof sp?.categoryId === "string" ||
-    Array.isArray(sp?.categoryId) ||
-    typeof sp?.genreId === "string" ||
-    Array.isArray(sp?.genreId) ||
-    typeof sp?.countryId === "string" ||
-    Array.isArray(sp?.countryId) ||
-    typeof sp?.voiceoverId === "string" ||
-    Array.isArray(sp?.voiceoverId) ||
-    typeof sp?.tagId === "string" ||
-    Array.isArray(sp?.tagId) ||
-    typeof sp?.excludeTagId === "string" ||
-    Array.isArray(sp?.excludeTagId);
 
-  const canSsrList = q.trim().length === 0 && !hasBrowse && !hasFilters;
+  const canSsrList = q.trim().length === 0 && !hasBrowse;
 
   let initialItems = [] as VibixVideoLinksResponse["data"];
   let initialLastPage: number | null = null;

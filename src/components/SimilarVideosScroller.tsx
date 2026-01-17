@@ -96,6 +96,17 @@ function intersectSize(a: Set<string>, b: Set<string>): number {
   return n;
 }
 
+export type SimilarVideosScrollerProps = {
+  genres: string[] | null | undefined;
+  seedTitle: string;
+  year?: number | null;
+  country?: string | null;
+  type?: "movie" | "serial";
+  excludeKpId?: number | null;
+  title?: string;
+  mode?: "similar" | "popular";
+};
+
 export function SimilarVideosScroller({
   genres,
   seedTitle,
@@ -104,21 +115,73 @@ export function SimilarVideosScroller({
   type,
   excludeKpId,
   title = "Похожие",
-}: {
-  genres: string[] | null | undefined;
-  seedTitle: string;
-  year?: number | null;
-  country?: string | null;
-  type?: "movie" | "serial";
-  excludeKpId?: number | null;
-  title?: string;
-}) {
+  mode = "similar",
+}: SimilarVideosScrollerProps) {
   const router = useRouter();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState<VibixVideoLink[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (mode === "popular") {
+      const ac = new AbortController();
+      setError(null);
+      setItems(null);
+
+      void (async () => {
+        try {
+          const pages = 3;
+          const limit = 20;
+          const all: VibixVideoLink[] = [];
+          for (let p = 1; p <= pages; p += 1) {
+            const sp = new URLSearchParams();
+            sp.set("page", String(p));
+            sp.set("limit", String(limit));
+            sp.set("enrich", "1");
+            if (type) sp.set("type", type);
+
+            const res = await fetch(`/api/vibix/videos?${sp.toString()}`, { signal: ac.signal });
+            if (!res.ok) {
+              const text = await res.text().catch(() => "");
+              throw new Error(text ? `HTTP ${res.status}: ${text}` : `HTTP ${res.status}`);
+            }
+            const json = (await res.json()) as { data?: VibixVideoLink[] };
+            all.push(...(json.data ?? []));
+          }
+
+          const seen = new Set<number>();
+          const deduped: VibixVideoLink[] = [];
+          for (const v of all) {
+            if (!v.kp_id) continue;
+            if (excludeKpId && v.kp_id === excludeKpId) continue;
+            if (seen.has(v.kp_id)) continue;
+            seen.add(v.kp_id);
+            deduped.push(v);
+          }
+
+          deduped.sort((a, b) => {
+            const ar = ratingValue(a);
+            const br = ratingValue(b);
+            if (br !== ar) return br - ar;
+            const by = b.year ?? 0;
+            const ay = a.year ?? 0;
+            if (by !== ay) return by - ay;
+            return (b.id ?? 0) - (a.id ?? 0);
+          });
+
+          setItems(deduped.slice(0, 16));
+        } catch (e) {
+          if (e instanceof DOMException && e.name === "AbortError") return;
+          setError(e instanceof Error ? e.message : "Unknown error");
+          setItems([]);
+        }
+      })();
+
+      return () => {
+        ac.abort();
+      };
+    }
+
     const gs = (genres ?? []).map((g) => (g ?? "").trim()).filter(Boolean);
     if (!gs.length) {
       setItems([]);
@@ -147,7 +210,7 @@ export function SimilarVideosScroller({
 
         const titleSearchPromise = franchiseQuery.length >= 2
           ? fetch(
-              `/api/vibix/videos/search?name=${encodeURIComponent(franchiseQuery)}&page=1&enrich=1`,
+              `/api/flixcdn/videos/search?title=${encodeURIComponent(franchiseQuery)}&page=1&limit=25&suggest=1`,
               { signal: ac.signal },
             )
           : null;
@@ -157,9 +220,8 @@ export function SimilarVideosScroller({
             const sp = new URLSearchParams();
             sp.set(s.kind, s.value);
             sp.set("page", "1");
-            sp.set("enrich", "1");
             if (seedType) sp.set("type", seedType);
-            const res = await fetch(`/api/vibix/videos/browse?${sp.toString()}`, {
+            const res = await fetch(`/api/flixcdn/videos?${sp.toString()}`, {
               signal: ac.signal,
             });
             if (!res.ok) {
@@ -279,11 +341,11 @@ export function SimilarVideosScroller({
     return () => {
       ac.abort();
     };
-  }, [country, excludeKpId, genres, seedTitle, type, year]);
+  }, [country, excludeKpId, genres, mode, seedTitle, type, year]);
 
   const visible = useMemo(() => (items ?? []).filter((v) => proxyImageUrl(v.poster_url)), [items]);
 
-  if (!genres?.length) return null;
+  if (mode !== "popular" && !genres?.length) return null;
   if (error) return null;
   if (items == null) return null;
   if (!visible.length) return null;

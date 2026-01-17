@@ -13,10 +13,11 @@ type Args = {
   limit: number;
   reset: boolean;
   probe: boolean;
+  untilDone: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
-  const args: Args = { mode: "recent", pages: 10, limit: 50, reset: false, probe: false };
+  const args: Args = { mode: "recent", pages: 10, limit: 50, reset: false, probe: false, untilDone: false };
 
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -44,6 +45,11 @@ function parseArgs(argv: string[]): Args {
 
     if (a === "--probe") {
       args.probe = true;
+      continue;
+    }
+
+    if (a === "--until-done") {
+      args.untilDone = true;
       continue;
     }
 
@@ -182,6 +188,102 @@ async function main() {
   }
 
   await ensureFlixcdnSchema();
+
+  if (args.untilDone) {
+    if (args.mode !== "full") {
+      throw new Error("--until-done is supported only with --mode full");
+    }
+
+    let totalScanned = 0;
+    let totalUpserted = 0;
+    let loops = 0;
+    let first = true;
+
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const isTransient = (message: string) => {
+      const m = message.toLowerCase();
+      return (
+        /api error 5\d\d/.test(m) ||
+        /error code 5\d\d/.test(m) ||
+        m.includes("bad gateway") ||
+        m.includes("cloudflare") ||
+        m.includes("internal server") ||
+        m.includes("aborted") ||
+        m.includes("timeout") ||
+        m.includes("etimedout") ||
+        m.includes("econnreset")
+      );
+    };
+
+    let transientRetries = 0;
+
+    while (true) {
+      loops += 1;
+      if (loops > 200) {
+        throw new Error("Stopped after 200 batches to avoid infinite loop. Re-run to continue.");
+      }
+
+      let r: Awaited<ReturnType<typeof syncFlixcdnCatalog>>;
+      try {
+        r = await syncFlixcdnCatalog({
+          mode: "full",
+          pages: args.pages,
+          limit: args.limit,
+          reset: first ? args.reset : false,
+        });
+        transientRetries = 0;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!isTransient(msg)) throw e;
+
+        transientRetries += 1;
+        const base = 5_000;
+        const exp = Math.min(10 * 60_000, base * Math.pow(2, transientRetries - 1));
+        const jitter = Math.floor(Math.random() * 1500);
+        const waitMs = exp + jitter;
+
+        // eslint-disable-next-line no-console
+        console.log(JSON.stringify({ success: false, transient: true, retry: transientRetries, waitMs, message: msg }, null, 2));
+
+        await sleep(waitMs);
+        loops -= 1;
+        continue;
+      }
+      first = false;
+
+      totalScanned += r.scanned;
+      totalUpserted += r.upserted;
+
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            batch: loops,
+            batch_scanned: r.scanned,
+            batch_upserted: r.upserted,
+            nextOffset: r.nextOffset,
+            done: r.done,
+            total_scanned: totalScanned,
+            total_upserted: totalUpserted,
+          },
+          null,
+          2,
+        ),
+      );
+
+      if (r.done || r.nextOffset == null) {
+        // eslint-disable-next-line no-console
+        console.log(JSON.stringify({ success: true, done: true, total_scanned: totalScanned, total_upserted: totalUpserted }, null, 2));
+        return;
+      }
+
+      if (r.scanned === 0) {
+        throw new Error("Full sync returned 0 items but is not done. Stopping to avoid infinite loop.");
+      }
+    }
+  }
+
   const r = await syncFlixcdnCatalog(args);
 
   // eslint-disable-next-line no-console

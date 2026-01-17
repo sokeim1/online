@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sync:flixcdn": "tsx -r tsconfig-paths/register scripts/flixcdn-sync.ts"
+    "sync:flixcdn": "tsx -r tsconfig-paths/register scripts/flixcdn-sync.ts",
+    "flixcdn:export": "tsx -r tsconfig-paths/register scripts/flixcdn-export.ts"
   },
   "dependencies": {
     "@vercel/analytics": "^1.5.0",

@@ -12,17 +12,6 @@ import { VideoRowCard } from "@/components/VideoRowCard";
 
 type TypeFilter = VibixVideoType | "all";
 
-const FILTER_KEYS = [
-  "categoryId",
-  "genreId",
-  "countryId",
-  "voiceoverId",
-  "yearFrom",
-  "yearTo",
-  "tagId",
-  "excludeTagId",
-] as const;
-
 function pickTitle(v: VibixVideoLink): string {
   return v.name_rus ?? v.name_eng ?? v.name;
 }
@@ -86,7 +75,8 @@ export function VideosGridClient({
   const didInitFromUrl = useRef(false);
 
   const filtersKey = useMemo(() => {
-    return FILTER_KEYS
+    const keys = ["year", "genre", "country"];
+    return keys
       .flatMap((k) => searchParams.getAll(k).map((v) => `${k}=${v}`))
       .sort()
       .join("&");
@@ -201,9 +191,11 @@ export function VideosGridClient({
     let nextCountry: string | null = null;
     if (Number.isFinite(y as number) && y && y > 1800) {
       nextYear = y;
-    } else if (gRaw) {
+    }
+    if (gRaw) {
       nextGenre = gRaw;
-    } else if (cRaw) {
+    }
+    if (cRaw) {
       nextCountry = cRaw;
     }
 
@@ -241,19 +233,12 @@ export function VideosGridClient({
     if (page !== 1) sp.set("page", String(page));
     else sp.delete("page");
 
-    if (!q) {
-      sp.delete("year");
-      sp.delete("genre");
-      sp.delete("country");
-
-      if (navYear != null) sp.set("year", String(navYear));
-      else if (navGenre) sp.set("genre", navGenre);
-      else if (navCountry) sp.set("country", navCountry);
-    } else {
-      sp.delete("year");
-      sp.delete("genre");
-      sp.delete("country");
-    }
+    sp.delete("year");
+    sp.delete("genre");
+    sp.delete("country");
+    if (navYear != null) sp.set("year", String(navYear));
+    if (navGenre) sp.set("genre", navGenre);
+    if (navCountry) sp.set("country", navCountry);
 
     const next = sp.toString();
     const current = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : searchParams.toString();
@@ -298,6 +283,9 @@ export function VideosGridClient({
       setPage(1);
       setLastPage(null);
       setError(null);
+      setNavYear(null);
+      setNavGenre(null);
+      setNavCountry(null);
       setHomeNonce((n) => n + 1);
     }
 
@@ -317,12 +305,6 @@ export function VideosGridClient({
 
   useEffect(() => {
     resetAndReload();
-  }, [type]);
-
-  useEffect(() => {
-    setNavGenre(null);
-    setNavCountry(null);
-    setNavYear(null);
   }, [type]);
 
   const visibleItems = useMemo(() => items, [items]);
@@ -406,11 +388,9 @@ export function VideosGridClient({
           return Number.isFinite(n) && n > 0 ? n : 20;
         })();
 
-        for (const k of FILTER_KEYS) {
-          for (const v of searchParams.getAll(k)) {
-            sp.append(k, v);
-          }
-        }
+        if (navYear != null) sp.set("year", String(navYear));
+        if (navGenre) sp.set("genre", navGenre);
+        if (navCountry) sp.set("country", navCountry);
 
         let url: string;
         if (isSearchMode) {
@@ -419,13 +399,7 @@ export function VideosGridClient({
           search.set("title", debouncedQuery);
           url = `/api/flixcdn/videos/search?${search.toString()}`;
         } else if (isBrowseMode) {
-          const browse = new URLSearchParams(Object.fromEntries(sp.entries()));
-          browse.delete("limit");
-          FILTER_KEYS.forEach((k) => browse.delete(k));
-          if (navYear != null) browse.set("year", String(navYear));
-          else if (navGenre) browse.set("genre", navGenre);
-          else if (navCountry) browse.set("country", navCountry);
-          url = `/api/vibix/videos/browse?${browse.toString()}`;
+          url = `/api/flixcdn/videos?${sp.toString()}`;
         } else {
           url = `/api/flixcdn/videos?${sp.toString()}`;
         }
@@ -864,11 +838,11 @@ export function VideosGridClient({
                 </div>
               ) : null}
 
-              {!isLoading && !error && isSearchMode && items.length === 0 ? (
+              {!isLoading && !error && items.length === 0 ? (
                 <div className="mt-6 rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
                   <div className="text-sm font-medium text-[color:var(--foreground)]">Контент не найден</div>
                   <div className="mt-1 text-xs text-[color:var(--muted)]">
-                    Попробуй другой запрос или вернись на главную.
+                    Попробуй изменить фильтры или вернись на главную.
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button

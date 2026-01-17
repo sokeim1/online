@@ -63,6 +63,15 @@ export function movieSlugHtmlPath(kpId: number, title: string): string {
   return `/movie/${kpId}-${slug}.html`;
 }
 
+export function movieSlugHtmlHref(kpId: number, title: string, lookupTitle?: string | null): string {
+  const path = movieSlugHtmlPath(kpId, title);
+  const q = String(lookupTitle ?? "").trim();
+  if (!q) return path;
+  const sp = new URLSearchParams();
+  sp.set("t", q);
+  return `${path}?${sp.toString()}`;
+}
+
 export function parseKpIdFromMovieParam(raw: string): number | null {
   const m = raw.match(/^(\d+)/);
   if (!m) return null;

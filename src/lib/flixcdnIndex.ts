@@ -1,13 +1,96 @@
 import { dbQuery } from "@/lib/db";
-import { flixcdnUpdates, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
+import { flixcdnSearch, flixcdnUpdates, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
 
 export type FlixcdnSyncMode = "recent" | "full";
 
 let schemaReady: Promise<void> | null = null;
 
+let pgTrgmReady: Promise<boolean> | null = null;
+
+async function hasPgTrgm(): Promise<boolean> {
+  if (pgTrgmReady) return pgTrgmReady;
+  pgTrgmReady = (async () => {
+    try {
+      const r = await dbQuery<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm') AS exists;`,
+      );
+      return !!r.rows[0]?.exists;
+    } catch {
+      return false;
+    }
+  })();
+  return pgTrgmReady;
+}
+
+export async function getFlixcdnTaxonomyFromDb(): Promise<{ genres: string[]; countries: string[]; years: number[] }> {
+  await ensureFlixcdnSchema();
+
+  const genresRes = await dbQuery<{ v: string }>(
+    `SELECT DISTINCT trim(v) AS v
+     FROM (
+       SELECT unnest(genres) AS v
+       FROM flixcdn_videos
+       WHERE genres IS NOT NULL
+     ) t
+     WHERE v IS NOT NULL AND v <> ''
+     ORDER BY v ASC
+     LIMIT 300;`,
+  );
+
+  const countriesRes = await dbQuery<{ v: string }>(
+    `SELECT DISTINCT trim(v) AS v
+     FROM (
+       SELECT unnest(countries) AS v
+       FROM flixcdn_videos
+       WHERE countries IS NOT NULL
+     ) t
+     WHERE v IS NOT NULL AND v <> ''
+     ORDER BY v ASC
+     LIMIT 300;`,
+  );
+
+  const yearsRes = await dbQuery<{ year: number }>(
+    `SELECT DISTINCT year
+     FROM flixcdn_videos
+     WHERE year IS NOT NULL
+     ORDER BY year DESC
+     LIMIT 80;`,
+  );
+
+  return {
+    genres: genresRes.rows.map((r) => r.v).filter(Boolean),
+    countries: countriesRes.rows.map((r) => r.v).filter(Boolean),
+    years: yearsRes.rows.map((r) => r.year).filter((n) => Number.isFinite(n)),
+  };
+}
+
+function parseSearchQuery(raw: string): { text: string; tokens: string[]; year: number | null } {
+  const trimmed = String(raw ?? "").trim();
+  const m = trimmed.match(/\b(19|20)\d{2}\b/);
+  const year = m ? Number.parseInt(m[0], 10) : null;
+
+  const withoutYear = year ? trimmed.replace(new RegExp(`\\b${year}\\b`, "g"), " ") : trimmed;
+  const normalized = withoutYear
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const rawTokens = normalized.split(" ").map((t) => t.trim()).filter(Boolean);
+  const minLen = normalized.length <= 2 ? 1 : 2;
+  const tokens = rawTokens.filter((t) => t.length >= minLen).slice(0, 6);
+
+  return { text: normalized, tokens, year: Number.isFinite(year as number) ? year : null };
+}
+
 export async function ensureFlixcdnSchema(): Promise<void> {
   if (schemaReady) return schemaReady;
   schemaReady = (async () => {
+  try {
+    await dbQuery(`CREATE EXTENSION IF NOT EXISTS pg_trgm;`);
+  } catch {
+  }
+
   await dbQuery(
     `CREATE TABLE IF NOT EXISTS flixcdn_videos (
       flixcdn_id BIGINT PRIMARY KEY,
@@ -71,6 +154,20 @@ export async function ensureFlixcdnSchema(): Promise<void> {
   await dbQuery(`CREATE INDEX IF NOT EXISTS flixcdn_videos_kp_id_idx ON flixcdn_videos(kp_id);`);
   await dbQuery(`CREATE INDEX IF NOT EXISTS flixcdn_videos_created_at_idx ON flixcdn_videos(created_at DESC NULLS LAST, flixcdn_id DESC);`);
 
+  try {
+    await dbQuery(
+      `CREATE INDEX IF NOT EXISTS flixcdn_videos_title_rus_trgm_idx
+       ON flixcdn_videos
+       USING gin (coalesce(title_rus, '') gin_trgm_ops);`,
+    );
+    await dbQuery(
+      `CREATE INDEX IF NOT EXISTS flixcdn_videos_title_orig_trgm_idx
+       ON flixcdn_videos
+       USING gin (coalesce(title_orig, '') gin_trgm_ops);`,
+    );
+  } catch {
+  }
+
   await dbQuery(
     `CREATE TABLE IF NOT EXISTS flixcdn_sync_state (
       "key" TEXT PRIMARY KEY,
@@ -88,7 +185,7 @@ export async function ensureFlixcdnSchema(): Promise<void> {
   return schemaReady;
 }
 
-type FlixcdnVideoRow = {
+export type FlixcdnVideoRow = {
   flixcdn_id: number;
   kp_id: number | null;
   imdb_id: string | null;
@@ -204,7 +301,10 @@ export async function syncFlixcdnCatalog({
   let nextOffset: number | null = null;
 
   for (let p = 0; p < maxPages; p += 1) {
-    const data = await flixcdnUpdates({ offset, limit: safeLimit }, { timeoutMs: 4000, attempts: 2 });
+    const data =
+      mode === "full"
+        ? await flixcdnSearch({ offset, limit: safeLimit }, { timeoutMs: 8000, attempts: 4 })
+        : await flixcdnUpdates({ offset, limit: safeLimit }, { timeoutMs: 4000, attempts: 2 });
     const items = data.result ?? [];
     if (!items.length) {
       done = true;
@@ -287,6 +387,9 @@ export async function syncFlixcdnCatalog({
     upserted += rows.length;
 
     nextOffset = data.next?.offset ?? null;
+    if (nextOffset == null) {
+      nextOffset = items.length >= safeLimit ? offset + safeLimit : null;
+    }
 
     if (mode === "full") {
       if (nextOffset != null) {
@@ -323,19 +426,52 @@ export async function listCatalogFromDb({
   offset,
   limit,
   type,
+  year,
+  genres,
+  country,
 }: {
   offset: number;
   limit: number;
   type: "movie" | "serial" | null;
+  year: number | null;
+  genres: string[] | null;
+  country: string | null;
 }): Promise<{ total: number; items: FlixcdnVideoRow[] }> {
   await ensureFlixcdnSchema();
 
   const whereParts: string[] = [];
   const params: unknown[] = [];
 
+  whereParts.push(`poster_url IS NOT NULL AND poster_url <> ''`);
+
   if (type) {
     params.push(type);
     whereParts.push(`type = $${params.length}`);
+  }
+
+  if (year != null) {
+    params.push(year);
+    whereParts.push(`year = $${params.length}`);
+  }
+
+  if (genres?.length) {
+    const normalized = genres
+      .map((g) => String(g ?? "").trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 6);
+    if (normalized.length) {
+      params.push(normalized);
+      whereParts.push(
+        `genres IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(genres) g WHERE lower(trim(g)) = ANY($${params.length}::text[]))`,
+      );
+    }
+  }
+
+  if (country) {
+    params.push(country);
+    whereParts.push(
+      `countries IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(countries) c WHERE lower(trim(c)) = lower(trim($${params.length}::text)))`,
+    );
   }
 
   const where = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -372,24 +508,151 @@ export async function listCatalogFromDb({
   return { total, items: rowsRes.rows };
 }
 
+export async function getFlixcdnVideoFromDbByKpId(kpId: number): Promise<FlixcdnVideoRow | null> {
+  await ensureFlixcdnSchema();
+
+  const res = await dbQuery<FlixcdnVideoRow>(
+    `SELECT
+      flixcdn_id,
+      kp_id,
+      imdb_id,
+      type,
+      year,
+      title_rus,
+      title_orig,
+      quality,
+      poster_url,
+      iframe_url,
+      created_at,
+      genres,
+      countries,
+      episodes_count
+     FROM flixcdn_videos
+     WHERE kp_id = $1
+     LIMIT 1;`,
+    [kpId],
+  );
+
+  return res.rows[0] ?? null;
+}
+
+export async function getFlixcdnVideoFromDbByFlixcdnId(flixcdnId: number): Promise<FlixcdnVideoRow | null> {
+  await ensureFlixcdnSchema();
+
+  const res = await dbQuery<FlixcdnVideoRow>(
+    `SELECT
+      flixcdn_id,
+      kp_id,
+      imdb_id,
+      type,
+      year,
+      title_rus,
+      title_orig,
+      quality,
+      poster_url,
+      iframe_url,
+      created_at,
+      genres,
+      countries,
+      episodes_count
+     FROM flixcdn_videos
+     WHERE flixcdn_id = $1
+     LIMIT 1;`,
+    [flixcdnId],
+  );
+
+  return res.rows[0] ?? null;
+}
+
 export async function searchCatalogFromDb({
   query,
   offset,
   limit,
   type,
+  year,
+  genres,
+  country,
 }: {
   query: string;
   offset: number;
   limit: number;
   type: "movie" | "serial" | null;
+  year: number | null;
+  genres: string[] | null;
+  country: string | null;
 }): Promise<{ total: number; items: FlixcdnVideoRow[] }> {
   await ensureFlixcdnSchema();
 
-  const q = `%${query}%`;
+  const parsed = parseSearchQuery(query);
+  const qText = parsed.text || query;
+  const qLike = `%${qText}%`;
 
   const whereParts: string[] = [];
-  const params: unknown[] = [q];
-  whereParts.push(`(title_rus ILIKE $1 OR title_orig ILIKE $1)`);
+  const params: unknown[] = [];
+
+  whereParts.push(`poster_url IS NOT NULL AND poster_url <> ''`);
+
+  // AND-by-token search to avoid irrelevant results when query has multiple words.
+  // If there are no usable tokens, fallback to searching by the whole query as substring.
+  let phraseParamIdx: number | null = null;
+  if (qText) {
+    params.push(qLike);
+    phraseParamIdx = params.length;
+  }
+
+  const tokenParamIdx: number[] = [];
+  if (parsed.tokens.length) {
+    const tokenClauses: string[] = [];
+    for (const tok of parsed.tokens) {
+      params.push(`%${tok}%`);
+      const idx = params.length;
+      tokenParamIdx.push(idx);
+      tokenClauses.push(`(title_rus ILIKE $${idx} OR title_orig ILIKE $${idx})`);
+    }
+    const matchParts: string[] = [];
+    if (phraseParamIdx) {
+      matchParts.push(`(title_rus ILIKE $${phraseParamIdx} OR title_orig ILIKE $${phraseParamIdx})`);
+    }
+    matchParts.push(`(${tokenClauses.join(" OR ")})`);
+    whereParts.push(`(${matchParts.join(" OR ")})`);
+  } else if (phraseParamIdx) {
+    whereParts.push(`(title_rus ILIKE $${phraseParamIdx} OR title_orig ILIKE $${phraseParamIdx})`);
+  }
+
+  const effectiveYear = year != null ? year : parsed.year;
+  let yearParamIdx: number | null = null;
+  if (effectiveYear) {
+    params.push(effectiveYear);
+    yearParamIdx = params.length;
+    whereParts.push(`year = $${yearParamIdx}`);
+  }
+
+  if (genres?.length) {
+    const normalized = genres
+      .map((g) => String(g ?? "").trim().toLowerCase())
+      .filter(Boolean)
+      .slice(0, 6);
+    if (normalized.length) {
+      params.push(normalized);
+      whereParts.push(
+        `genres IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(genres) g WHERE lower(trim(g)) = ANY($${params.length}::text[]))`,
+      );
+    }
+  }
+
+  if (country) {
+    params.push(country);
+    whereParts.push(
+      `countries IS NOT NULL AND EXISTS (SELECT 1 FROM unnest(countries) c WHERE lower(trim(c)) = lower(trim($${params.length}::text)))`,
+    );
+  }
+
+  const trgm = await hasPgTrgm();
+  let trgmParamIdx: number | null = null;
+  if (trgm) {
+    params.push(qText);
+    trgmParamIdx = params.length;
+  }
 
   if (type) {
     params.push(type);
@@ -397,6 +660,26 @@ export async function searchCatalogFromDb({
   }
 
   const where = `WHERE ${whereParts.join(" AND ")}`;
+
+  const scoreParts: string[] = [];
+  if (phraseParamIdx) {
+    scoreParts.push(
+      `CASE WHEN (title_rus ILIKE $${phraseParamIdx} OR title_orig ILIKE $${phraseParamIdx}) THEN 10 ELSE 0 END`,
+    );
+  }
+  if (tokenParamIdx.length) {
+    const tokenHits = tokenParamIdx
+      .map((idx) => `CASE WHEN (title_rus ILIKE $${idx} OR title_orig ILIKE $${idx}) THEN 1 ELSE 0 END`)
+      .join(" + ");
+    scoreParts.push(`(${tokenHits}) * 4`);
+  }
+  if (yearParamIdx) scoreParts.push(`5`);
+  if (trgmParamIdx && qText.length >= 2) {
+    scoreParts.push(
+      `GREATEST(similarity(coalesce(title_rus, ''), $${trgmParamIdx}), similarity(coalesce(title_orig, ''), $${trgmParamIdx})) * 12`,
+    );
+  }
+  const scoreExpr = scoreParts.length ? scoreParts.join(" + ") : "0";
 
   const totalRes = await dbQuery<{ count: string }>(
     `SELECT COUNT(*)::text AS count

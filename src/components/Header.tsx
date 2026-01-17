@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { MovieSearchBar } from "@/components/MovieSearchBar";
 
@@ -13,6 +14,7 @@ function setTheme(theme: ThemeMode) {
 }
 
 export function Header() {
+  const router = useRouter();
   const [theme, setThemeState] = useState<ThemeMode>(() => {
     if (typeof document === "undefined") return "dark";
     const t = document.documentElement.dataset.theme;
@@ -70,13 +72,21 @@ export function Header() {
 
   function onHomeClick() {
     window.dispatchEvent(new Event("doramy:home"));
+    router.push("/");
   }
 
   return (
     <header className="sticky top-0 z-30 border-b border-[color:var(--border)] bg-[color:var(--header-bg)] backdrop-blur-xl">
       <div className="mx-auto w-full max-w-6xl px-3 py-3 sm:px-4">
         <div className="flex items-center justify-between gap-2 sm:gap-4">
-          <Link href="/" onClick={onHomeClick} className="flex min-w-0 items-center gap-2 text-left cursor-pointer">
+          <Link
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              onHomeClick();
+            }}
+            className="flex min-w-0 items-center gap-2 text-left cursor-pointer"
+          >
             <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-[color:var(--accent-soft)]">
               <img
                 src="https://www.shutterstock.com/image-vector/film-reel-vector-cinema-logo-600nw-2353280887.jpg"

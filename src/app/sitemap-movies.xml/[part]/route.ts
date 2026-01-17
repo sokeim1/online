@@ -1,5 +1,7 @@
-import { getVibixVideoLinks } from "@/lib/vibix";
 import { movieSlugHtmlPath } from "@/lib/movieUrl";
+import { hasDatabaseUrl } from "@/lib/db";
+import { dbQuery } from "@/lib/db";
+import { ensureFlixcdnSchema } from "@/lib/flixcdnIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,94 +64,45 @@ class SitemapNotFoundError extends Error {
   name = "SitemapNotFoundError";
 }
 
-async function buildMoviesSitemap(
-  baseUrl: string,
-  part: number,
-  firstMoviesMeta: Awaited<ReturnType<typeof getVibixVideoLinks>>,
-  firstSerialsMeta: Awaited<ReturnType<typeof getVibixVideoLinks>>,
-): Promise<string> {
-  const limit = 20;
-  const maxPartsTotal = 10;
-  const lastMoviesPageOverall = firstMoviesMeta.meta?.last_page ?? 1;
-  const lastSerialsPageOverall = firstSerialsMeta.meta?.last_page ?? 1;
-  const totalPages = Math.max(1, lastMoviesPageOverall + lastSerialsPageOverall);
-  const pagesPerSitemap = Math.max(1, Math.ceil(totalPages / maxPartsTotal));
-  const totalParts = Math.min(maxPartsTotal, Math.max(1, Math.ceil(totalPages / pagesPerSitemap)));
+async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string> {
+  if (!hasDatabaseUrl()) {
+    return `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
+  }
+
+  await ensureFlixcdnSchema();
+
+  const urlsPerSitemap = 50000;
+  const offset = (part - 1) * urlsPerSitemap;
+
+  const totalRes = await dbQuery<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+     FROM flixcdn_videos
+     WHERE kp_id IS NOT NULL;`,
+  );
+  const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
+  const totalParts = Math.max(1, Math.ceil(total / urlsPerSitemap));
 
   if (part > totalParts) {
     throw new SitemapNotFoundError("Not found");
   }
 
-  const virtualStart = (part - 1) * pagesPerSitemap + 1;
-  const virtualEnd = part * pagesPerSitemap;
+  const rows = await dbQuery<{ kp_id: number; title_rus: string | null; title_orig: string | null; created_at: string | null }>(
+    `SELECT kp_id, title_rus, title_orig, created_at
+     FROM flixcdn_videos
+     WHERE kp_id IS NOT NULL
+     ORDER BY created_at DESC NULLS LAST, flixcdn_id DESC
+     LIMIT $1 OFFSET $2;`,
+    [urlsPerSitemap, offset],
+  );
 
   const urls: Array<{ loc: string; lastmod?: string }> = [];
-
-  const pushLinks = (data: Awaited<ReturnType<typeof getVibixVideoLinks>>["data"]) => {
-    for (const v of data) {
-      if (!v.kp_id) continue;
-      const title = v.name_rus ?? v.name_eng ?? v.name;
-      urls.push({
-        loc: `${baseUrl}${movieSlugHtmlPath(v.kp_id, title)}`,
-        lastmod: toLastMod(v.uploaded_at) ?? undefined,
-      });
-    }
-  };
-
-  const movieStart = virtualStart;
-  const movieEnd = Math.min(virtualEnd, lastMoviesPageOverall);
-  const hasMovies = movieStart <= movieEnd;
-
-  const serialStart = Math.max(1, virtualStart - lastMoviesPageOverall);
-  const serialEnd = Math.min(virtualEnd - lastMoviesPageOverall, lastSerialsPageOverall);
-  const hasSerials = serialStart <= serialEnd;
-
-  const batchSize = 4;
-
-  if (hasMovies) {
-    const firstMovies = movieStart === 1
-      ? firstMoviesMeta
-      : await getVibixVideoLinks({ type: "movie", page: movieStart, limit });
-    pushLinks(firstMovies.data);
-
-    const pages: number[] = [];
-    for (let page = movieStart + 1; page <= movieEnd; page += 1) {
-      pages.push(page);
-    }
-
-    for (let i = 0; i < pages.length; i += batchSize) {
-      const chunk = pages.slice(i, i + batchSize);
-      const results = await Promise.allSettled(
-        chunk.map((page) => getVibixVideoLinks({ type: "movie", page, limit })),
-      );
-      for (const r of results) {
-        if (r.status !== "fulfilled") continue;
-        pushLinks(r.value.data);
-      }
-    }
-  }
-
-  if (hasSerials) {
-    const firstSerials = serialStart === 1
-      ? firstSerialsMeta
-      : await getVibixVideoLinks({ type: "serial", page: serialStart, limit });
-    pushLinks(firstSerials.data);
-
-    const pages: number[] = [];
-    for (let page = serialStart + 1; page <= serialEnd; page += 1) {
-      pages.push(page);
-    }
-
-    for (let i = 0; i < pages.length; i += batchSize) {
-      const chunk = pages.slice(i, i + batchSize);
-      const results = await Promise.allSettled(
-        chunk.map((page) => getVibixVideoLinks({ type: "serial", page, limit })),
-      );
-      for (const r of results) {
-        if (r.status !== "fulfilled") continue;
-        pushLinks(r.value.data);
-      }
-    }
+  for (const r of rows.rows) {
+    const title = r.title_rus ?? r.title_orig ?? String(r.kp_id);
+    urls.push({
+      loc: `${baseUrl}${movieSlugHtmlPath(r.kp_id, title)}`,
+      lastmod: toLastMod(r.created_at) ?? undefined,
+    });
   }
 
   const body = urls
@@ -187,12 +140,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
   }
 
   try {
-    const limit = 20;
-    const [firstMoviesMeta, firstSerialsMeta] = await Promise.all([
-      getVibixVideoLinks({ type: "movie", page: 1, limit }),
-      getVibixVideoLinks({ type: "serial", page: 1, limit }),
-    ]);
-    const xml = await buildMoviesSitemap(siteUrl, part, firstMoviesMeta, firstSerialsMeta);
+    const xml = await buildMoviesSitemap(siteUrl, part);
     cache.set(cacheKey, { xml, expiresAt: now + 60 * 60 * 1000 });
     return new Response(xml, {
       headers: {
