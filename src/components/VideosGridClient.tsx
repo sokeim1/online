@@ -56,6 +56,13 @@ function parseResponse(data: unknown): VibixVideoLinksResponse {
   return data as VibixVideoLinksResponse;
 }
 
+function summarizeUpstreamBody(body: string): string {
+  const trimmed = String(body ?? "").trim();
+  if (!trimmed) return "";
+  const noTags = trimmed.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return noTags.length > 220 ? `${noTags.slice(0, 220)}…` : noTags;
+}
+
 type VideosGridClientProps = {
   initialQ?: string;
   initialType?: string;
@@ -436,7 +443,8 @@ export function VideosGridClient({
             }
           } catch {
           }
-          throw new Error(text ? `HTTP ${res.status}: ${text}` : `HTTP ${res.status}`);
+          const summary = summarizeUpstreamBody(text);
+          throw new Error(summary ? `HTTP ${res.status}: ${summary}` : `HTTP ${res.status}`);
         }
 
         const json = parseResponse(await res.json());
