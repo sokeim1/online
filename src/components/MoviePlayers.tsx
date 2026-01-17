@@ -90,6 +90,21 @@ export function MoviePlayers({
       <div className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
         <div className="relative aspect-video w-full">
           {selectedId === "p1" ? (
+            p2IframeUrl ? (
+              <iframe
+                src={p2IframeUrl}
+                className="absolute inset-0 h-full w-full"
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+                loading="lazy"
+                title={title}
+              />
+            ) : (
+              <div className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-white/70">
+                Плеер недоступен.
+              </div>
+            )
+          ) : (
             <VibixRendexPlayer
               publisherId={vibix.publisherId}
               type={vibix.type}
@@ -98,19 +113,6 @@ export function MoviePlayers({
               fallbackIframeUrl={vibix.fallbackIframeUrl}
               posterSrc={vibix.posterSrc}
             />
-          ) : p2IframeUrl ? (
-            <iframe
-              src={p2IframeUrl}
-              className="absolute inset-0 h-full w-full"
-              allow="autoplay; fullscreen; picture-in-picture"
-              allowFullScreen
-              loading="lazy"
-              title={title}
-            />
-          ) : (
-            <div className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-white/70">
-              Плеер недоступен.
-            </div>
           )}
         </div>
       </div>

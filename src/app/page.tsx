@@ -66,12 +66,10 @@ export default async function Home({ searchParams }: HomeProps) {
       qs.set("enrich", "1");
       if (type === "movie" || type === "serial") qs.set("type", type);
 
-      const res = await fetch(`/api/vibix/videos?${qs.toString()}`, { cache: "no-store" });
+      const res = await fetch(`/api/flixcdn/videos?${qs.toString()}`, { cache: "no-store" });
       if (res.ok) {
         const data = (await res.json()) as VibixVideoLinksResponse;
-        initialItems = data.data
-          .filter((v) => v.kp_id != null)
-          .slice()
+        initialItems = data.data.slice()
           .sort((a, b) => {
             const ar = ratingValue(a);
             const br = ratingValue(b);

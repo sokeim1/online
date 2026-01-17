@@ -130,7 +130,7 @@ export function MovieSearchBar({ className }: Props) {
     if (/^tt\d+$/i.test(q)) {
       setError(null);
       try {
-        const res = await fetch(`/api/vibix/videos/imdb/${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/flixcdn/resolve/imdb/${encodeURIComponent(q)}`);
         const json = (await res.json()) as
           | { success: true; data: { kp_id: number | null } }
           | { success: false; message: string };
@@ -139,7 +139,7 @@ export function MovieSearchBar({ className }: Props) {
         }
         const kpId = json.data.kp_id;
         if (!kpId) {
-          throw new Error("У этого IMDb ID нет kp_id в Vibix");
+          throw new Error("У этого IMDb ID нет kinopoisk_id в FlixCDN");
         }
         router.push(movieSlugHtmlPath(kpId, String(kpId)));
       } catch (e) {

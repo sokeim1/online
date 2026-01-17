@@ -341,30 +341,22 @@ export function VideosGridClient({
       try {
         const target = 24;
         const dedup = new Map<number, VibixVideoLink>();
-        const currentYear = new Date().getFullYear();
-        const minYear = 1900;
+        for (let p = 1; p <= 5 && dedup.size < target; p += 1) {
+          const sp = new URLSearchParams();
+          sp.set("page", String(p));
+          sp.set("limit", "20");
 
-        for (let y = currentYear; y >= minYear && dedup.size < target; y -= 1) {
-          for (let p = 1; p <= 3 && dedup.size < target; p += 1) {
-            const sp = new URLSearchParams();
-            sp.set("yearFrom", String(y));
-            sp.set("yearTo", String(y));
-            sp.set("page", String(p));
-            sp.set("limit", "20");
-            sp.set("enrich", "1");
-
-            const res = await fetch(`/api/vibix/videos?${sp.toString()}`, { signal: ac.signal });
-            if (!res.ok) break;
-            const json = parseResponse(await res.json());
-            const rows = (json.data ?? []).filter((v) => v.kp_id != null);
-            if (!rows.length) break;
-            for (const v of rows) {
-              if (!dedup.has(v.id)) dedup.set(v.id, v);
-              if (dedup.size >= target) break;
-            }
-            const last = json.meta?.last_page ?? 1;
-            if (p >= last) break;
+          const res = await fetch(`/api/flixcdn/videos?${sp.toString()}`, { signal: ac.signal });
+          if (!res.ok) break;
+          const json = parseResponse(await res.json());
+          const rows = json.data ?? [];
+          if (!rows.length) break;
+          for (const v of rows) {
+            if (!dedup.has(v.id)) dedup.set(v.id, v);
+            if (dedup.size >= target) break;
           }
+          const last = json.meta?.last_page ?? 1;
+          if (p >= last) break;
         }
 
         setFeaturedNewItems(Array.from(dedup.values()));
@@ -410,9 +402,9 @@ export function VideosGridClient({
         let url: string;
         if (isSearchMode) {
           const search = new URLSearchParams(sp);
-          search.set("name", debouncedQuery);
-          search.set("enrich", "1");
-          url = `/api/vibix/videos/search?${search.toString()}`;
+          search.delete("name");
+          search.set("title", debouncedQuery);
+          url = `/api/flixcdn/videos/search?${search.toString()}`;
         } else if (isBrowseMode) {
           const browse = new URLSearchParams(Object.fromEntries(sp.entries()));
           browse.delete("limit");
@@ -420,11 +412,9 @@ export function VideosGridClient({
           if (navYear != null) browse.set("year", String(navYear));
           else if (navGenre) browse.set("genre", navGenre);
           else if (navCountry) browse.set("country", navCountry);
-          browse.set("enrich", "1");
           url = `/api/vibix/videos/browse?${browse.toString()}`;
         } else {
-          sp.set("enrich", "1");
-          url = `/api/vibix/videos?${sp.toString()}`;
+          url = `/api/flixcdn/videos?${sp.toString()}`;
         }
 
         const res = await fetch(url, {
@@ -445,7 +435,7 @@ export function VideosGridClient({
 
         const json = parseResponse(await res.json());
 
-        const base = json.data.filter((v) => v.kp_id != null);
+        const base = json.data;
         const filtered = isSearchMode && type !== "all" ? base.filter((v) => v.type === type) : base;
 
         const withOrdering =
@@ -737,24 +727,24 @@ export function VideosGridClient({
                       const href = v.kp_id ? movieSlugHtmlPath(v.kp_id, t) : null;
                       const posterSrc = proxyImageUrl(v.poster_url);
                       const rating = formatRating(v);
-                      if (!href || !posterSrc) return null;
-                      return (
-                        <button
-                          key={`ft-${v.id}-${v.kp_id}`}
-                          type="button"
-                          onClick={() => router.push(href)}
-                          title={t}
-                          className="group w-[120px] shrink-0 text-left sm:w-[140px]"
-                        >
+
+                      const body = (
+                        <>
                           <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-[color:var(--border)] bg-[color:var(--surface-hover)]">
-                            <Image
-                              src={posterSrc}
-                              alt={t}
-                              fill
-                              unoptimized
-                              className="object-cover"
-                              sizes="(min-width: 640px) 140px, 120px"
-                            />
+                            {posterSrc ? (
+                              <Image
+                                src={posterSrc}
+                                alt={t}
+                                fill
+                                unoptimized
+                                className="object-cover"
+                                sizes="(min-width: 640px) 140px, 120px"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-xs text-[color:var(--muted)]">
+                                Нет постера
+                              </div>
+                            )}
 
                             {rating ? (
                               <div className="absolute left-1 top-1 rounded bg-orange-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow">
@@ -766,7 +756,23 @@ export function VideosGridClient({
                           <div className="mt-2 line-clamp-2 text-xs font-medium text-[color:var(--foreground)] transition-colors group-hover:text-[color:var(--title-hover)]">
                             {t}
                           </div>
+                        </>
+                      );
+
+                      return href ? (
+                        <button
+                          key={`ft-${v.id}-${v.kp_id}`}
+                          type="button"
+                          onClick={() => router.push(href)}
+                          title={t}
+                          className="group w-[120px] shrink-0 text-left sm:w-[140px]"
+                        >
+                          {body}
                         </button>
+                      ) : (
+                        <div key={`ft-${v.id}-nokp`} title={t} className="group w-[120px] shrink-0 text-left sm:w-[140px]">
+                          {body}
+                        </div>
                       );
                     })}
                   </div>
