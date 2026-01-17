@@ -436,7 +436,7 @@ export function VideosGridClient({
         const json = parseResponse(await res.json());
 
         const base = json.data;
-        const filtered = isSearchMode && type !== "all" ? base.filter((v) => v.type === type) : base;
+        const filtered = type !== "all" ? base.filter((v) => v.type === type) : base;
 
         const withOrdering =
           !isSearchMode
@@ -456,7 +456,10 @@ export function VideosGridClient({
             : filtered;
 
         setItems(withOrdering);
-        if (isSearchMode && type !== "all") {
+
+        if (url.startsWith("/api/flixcdn/")) {
+          setLastPage(null);
+        } else if (isSearchMode && type !== "all") {
           setLastPage(1);
         } else {
           setLastPage(json.meta?.last_page ?? null);
@@ -477,6 +480,39 @@ export function VideosGridClient({
   }, [page, type, isBrowseMode, isSearchMode, debouncedQuery, homeNonce, navCountry, navGenre, navYear, filtersKey]);
 
   const PaginationBlock = useMemo(() => {
+    const show = lastPage == null ? page > 1 || canLoadMore : pagination.show;
+    if (!show) return null;
+
+    if (lastPage == null) {
+      return (
+        <div className="mt-6 flex flex-col items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => goToPage(page - 1)}
+              disabled={page <= 1 || isLoading || !!error}
+              className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
+            >
+              Назад
+            </button>
+
+            <div className="min-w-10 rounded-2xl border border-[color:var(--border)] bg-[color:var(--pagination-active)] px-3 py-2 text-center text-xs text-white sm:min-w-12 sm:px-5 sm:py-3 sm:text-sm">
+              {page}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => goToPage(page + 1)}
+              disabled={!canLoadMore || isLoading || !!error}
+              className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)] px-3 py-2 text-xs text-[color:var(--foreground)] disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
+            >
+              Вперёд
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (!pagination.show) return null;
     return (
       <div className="mt-6 flex flex-col items-center gap-2">
@@ -524,7 +560,7 @@ export function VideosGridClient({
         </div>
       </div>
     );
-  }, [error, goToPage, isLoading, lastPage, page, pagination.pages, pagination.show]);
+  }, [canLoadMore, error, goToPage, isLoading, lastPage, page, pagination.pages, pagination.show]);
 
   function goToPage(nextPage: number) {
     if (!lastPage) {

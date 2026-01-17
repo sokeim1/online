@@ -8,11 +8,35 @@ import { SimilarVideosScroller } from "@/components/SimilarVideosScroller";
 import { MoviePlayers } from "@/components/MoviePlayers";
 import { PosterLightbox } from "@/components/PosterLightbox";
 import { getVibixSerialByKpId, getVibixVideoByKpId } from "@/lib/vibix";
+import { flixcdnSearch, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
 import { proxyImageUrl } from "@/lib/imageProxy";
 import { movieSlugHtmlPath, parseKpIdFromMovieParam } from "@/lib/movieUrl";
 
 export const runtime = "nodejs";
 export const revalidate = 3600;
+
+function parseFlixcdnDurationToMinutes(raw: unknown): number | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+
+  const parts = s.split(":").map((p) => p.trim());
+  if (parts.length === 2) {
+    const a = Number.parseInt(parts[0], 10);
+    const b = Number.parseInt(parts[1], 10);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+    if (a <= 0 && b <= 0) return null;
+    if (a >= 10) {
+      return a;
+    }
+    return a * 60 + b;
+  }
+
+  const m = s.match(/\d+/);
+  if (!m) return null;
+  const n = Number.parseInt(m[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
 
 function pickTitle(v: {
   name: string;
@@ -32,7 +56,27 @@ export async function generateMetadata(
   }
 
   try {
-    const video = await getVibixVideoByKpId(id);
+    let video: any;
+    try {
+      video = await getVibixVideoByKpId(id);
+    } catch {
+      const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 1, offset: 0 });
+      const first = fl.result?.[0];
+      if (!first) {
+        return { title: "Doramy Online - Смотри бесплатно дорамы и сериалы" };
+      }
+      video = {
+        name: first.title_orig ?? first.title_rus ?? "",
+        name_rus: first.title_rus ?? null,
+        name_eng: null,
+        year: parseFlixcdnYear(first.year),
+        description: first.description ?? null,
+        description_short: null,
+        poster_url: typeof first.poster === "string" ? first.poster : null,
+        backdrop_url: null,
+      };
+    }
+
     const title = pickTitle(video);
     const year = video.year ? ` (${video.year})` : "";
     const fullTitle = `${title}${year} — смотреть онлайн`;
@@ -83,11 +127,79 @@ export default async function MoviePage({
     notFound();
   }
 
-  let video;
+  type MovieVideo = {
+    id: number;
+    name: string;
+    name_rus: string | null;
+    name_eng: string | null;
+    name_original: string | null;
+    type: "movie" | "serial";
+    year: number | null;
+    kp_id: number | null;
+    imdb_id: string | null;
+    kp_rating: number | null;
+    imdb_rating: number | null;
+    iframe_url: string;
+    poster_url: string | null;
+    backdrop_url: string | null;
+    duration: number | null;
+    quality: string;
+    genre: string[] | null;
+    country: string[] | null;
+    description: string | null;
+    description_short: string | null;
+    voiceovers: Array<{ id: number; name: string }> | null;
+    tags: unknown[] | null;
+    uploaded_at: string | null;
+  };
+
+  let video: MovieVideo;
+  let vibixVideo: Awaited<ReturnType<typeof getVibixVideoByKpId>> | null = null;
   try {
-    video = await getVibixVideoByKpId(id);
+    vibixVideo = await getVibixVideoByKpId(id);
+    video = vibixVideo as unknown as MovieVideo;
   } catch {
-    notFound();
+    let first: any = null;
+    try {
+      const fl = await flixcdnSearch({ kinopoisk_id: id, limit: 1, offset: 0 });
+      first = fl.result?.[0] ?? null;
+    } catch {
+      notFound();
+    }
+    if (!first) notFound();
+
+    video = {
+      id: first.id,
+      name: first.title_orig ?? first.title_rus ?? "",
+      name_rus: first.title_rus ?? null,
+      name_eng: null,
+      name_original: first.title_orig ?? null,
+      type: first.type === "serial" ? "serial" : "movie",
+      year: parseFlixcdnYear(first.year),
+      kp_id: parseFlixcdnInt(first.kinopoisk_id),
+      imdb_id: typeof first.imdb_id === "string" ? first.imdb_id : null,
+      kp_rating: null,
+      imdb_rating: null,
+      iframe_url: typeof first.iframe_url === "string" ? first.iframe_url : "",
+      poster_url: typeof first.poster === "string" ? first.poster : null,
+      backdrop_url: null,
+      duration: parseFlixcdnDurationToMinutes(first.duration),
+      quality: typeof first.quality === "string" ? first.quality : "",
+      genre: Array.isArray(first.genres) ? first.genres : null,
+      country: Array.isArray(first.countries) ? first.countries : null,
+      description: first.description ?? null,
+      description_short: null,
+      voiceovers: Array.isArray(first.translations)
+        ? first.translations
+            .map((t: { id?: unknown; title?: unknown }) => ({
+              id: Number.parseInt(String(t.id), 10) || 0,
+              name: String(t.title ?? "").trim(),
+            }))
+            .filter((t: { id: number; name: string }) => t.name)
+        : null,
+      tags: null,
+      uploaded_at: typeof first.created_at === "string" ? first.created_at : null,
+    };
   }
 
   const title = pickTitle(video);
@@ -166,9 +278,7 @@ export default async function MoviePage({
   };
 
   const serialInfo =
-    video.type === "serial"
-      ? await getVibixSerialByKpId(id).catch(() => null)
-      : null;
+    vibixVideo && video.type === "serial" ? await getVibixSerialByKpId(id).catch(() => null) : null;
 
   const episodesCount =
     video.type === "serial" && serialInfo?.seasons?.length
@@ -336,13 +446,17 @@ export default async function MoviePage({
                   title={title}
                   year={video.year}
                   imdbId={video.imdb_id}
-                  vibix={{
-                    publisherId: "676077867",
-                    type: video.type === "serial" ? "series" : "movie",
-                    id: String(video.id),
-                    fallbackIframeUrl: video.iframe_url,
-                    posterSrc,
-                  }}
+                  vibix={
+                    vibixVideo
+                      ? {
+                          publisherId: "676077867",
+                          type: video.type === "serial" ? "series" : "movie",
+                          id: String(video.id),
+                          fallbackIframeUrl: video.iframe_url,
+                          posterSrc,
+                        }
+                      : undefined
+                  }
                 />
               </div>
             </section>

@@ -5,6 +5,9 @@ import { flixcdnSearch, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn"
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type CacheEntry = { ts: number; payload: unknown };
+const cache = new Map<string, CacheEntry>();
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
@@ -23,6 +26,7 @@ export async function GET(req: Request) {
   const safeLimit = Number.isFinite(limit) ? Math.min(50, Math.max(1, limit)) : 20;
 
   const offset = (safePage - 1) * safeLimit;
+  const cacheKey = `search:${title}:${offset}:${safeLimit}`;
 
   try {
     const data = await flixcdnSearch({ title, offset, limit: safeLimit });
@@ -58,7 +62,7 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       data: out,
       links: { first: "", last: "", prev: null, next: data.next ? "1" : null },
       meta: {
@@ -74,8 +78,19 @@ export async function GET(req: Request) {
       success: true,
       message: "",
     });
+
+    cache.set(cacheKey, { ts: Date.now(), payload: await res.clone().json() });
+    return res;
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Unknown error";
-    return NextResponse.json({ success: false, message }, { status: 500 });
+    const now = Date.now();
+    const cached = cache.get(cacheKey);
+    if (cached && now - cached.ts < 5 * 60 * 1000) {
+      const res = NextResponse.json(cached.payload);
+      res.headers.set("x-cache-fallback", "1");
+      return res;
+    }
+
+    const message = e instanceof Error ? e.message : "FlixCDN temporarily unavailable";
+    return NextResponse.json({ success: false, message }, { status: 502 });
   }
 }

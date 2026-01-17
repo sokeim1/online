@@ -81,8 +81,8 @@ export default async function Home({ searchParams }: HomeProps) {
 
             return b.id - a.id;
           });
-        initialLastPage = data.meta?.last_page ?? null;
-        initialTotal = data.meta?.total ?? null;
+        initialLastPage = null;
+        initialTotal = null;
       }
     } catch {
     }

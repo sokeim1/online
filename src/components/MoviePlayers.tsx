@@ -19,7 +19,7 @@ export function MoviePlayers({
   title: string;
   year?: number | null;
   imdbId?: string | null;
-  vibix: {
+  vibix?: {
     publisherId: string;
     type: "movie" | "series";
     id: string;
@@ -29,9 +29,9 @@ export function MoviePlayers({
 }) {
   const sources = useMemo(() => {
     const list: Array<{ id: PlayerId; label: string }> = [{ id: "p1", label: "Плеер 1" }];
-    list.push({ id: "p2", label: "Плеер 2" });
+    if (vibix) list.push({ id: "p2", label: "Плеер 2" });
     return list;
-  }, []);
+  }, [vibix]);
 
   const [selectedId, setSelectedId] = useState<PlayerId>("p1");
 
@@ -49,6 +49,10 @@ export function MoviePlayers({
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(storageKey) as PlayerId | null;
+      if (saved === "p2" && !vibix) {
+        setSelectedId("p1");
+        return;
+      }
       if (saved === "p1" || saved === "p2") {
         setSelectedId(saved);
       } else {
@@ -56,7 +60,7 @@ export function MoviePlayers({
       }
     } catch {
     }
-  }, [storageKey]);
+  }, [storageKey, vibix]);
 
   function select(id: PlayerId) {
     setSelectedId(id);
@@ -105,14 +109,20 @@ export function MoviePlayers({
               </div>
             )
           ) : (
-            <VibixRendexPlayer
-              publisherId={vibix.publisherId}
-              type={vibix.type}
-              id={vibix.id}
-              title={title}
-              fallbackIframeUrl={vibix.fallbackIframeUrl}
-              posterSrc={vibix.posterSrc}
-            />
+            vibix ? (
+              <VibixRendexPlayer
+                publisherId={vibix.publisherId}
+                type={vibix.type}
+                id={vibix.id}
+                title={title}
+                fallbackIframeUrl={vibix.fallbackIframeUrl}
+                posterSrc={vibix.posterSrc}
+              />
+            ) : (
+              <div className="absolute inset-0 grid place-items-center p-4 text-center text-sm text-white/70">
+                Плеер недоступен.
+              </div>
+            )
           )}
         </div>
       </div>
