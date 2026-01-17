@@ -2,7 +2,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function getFlixcdnApiBase(): string {
-  return process.env.FLIXCDN_API_BASE?.trim() || "https://api0.flixcdn.biz";
+  const raw = process.env.FLIXCDN_API_BASE?.trim() ?? "";
+  if (raw && /^https?:\/\//i.test(raw)) {
+    try {
+      const u = new URL(raw);
+      if (u.hostname) return raw.replace(/\/$/, "");
+    } catch {
+    }
+  }
+  return "https://api0.flixcdn.biz";
 }
 
 function pickFirstArray(payload: unknown): unknown[] | null {

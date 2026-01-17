@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { hasDatabaseUrl } from "@/lib/db";
-import { syncFlixcdnCatalog } from "@/lib/flixcdnIndex";
+import { ensureFlixcdnSchema, syncFlixcdnCatalog } from "@/lib/flixcdnIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +25,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, message: "Missing env: DATABASE_URL" }, { status: 500 });
   }
 
+  try {
+    await ensureFlixcdnSchema();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "DB init failed";
+    return NextResponse.json({ success: false, message: `DB error: ${message}` }, { status: 502 });
+  }
+
   const modeRaw = (searchParams.get("mode") ?? "recent").trim();
   const mode = modeRaw === "full" ? "full" : "recent";
 
@@ -41,6 +48,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, mode, ...r });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Sync failed";
-    return NextResponse.json({ success: false, message }, { status: 502 });
+    return NextResponse.json({ success: false, message: `Sync error: ${message}` }, { status: 502 });
   }
 }

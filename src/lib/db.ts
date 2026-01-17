@@ -2,6 +2,17 @@ import { Pool } from "pg";
 
 let pool: Pool | null = null;
 
+function getDatabaseHostHint(): string {
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) return "(missing DATABASE_URL)";
+  try {
+    const u = new URL(connectionString);
+    return u.hostname || "(no hostname)";
+  } catch {
+    return "(invalid DATABASE_URL)";
+  }
+}
+
 export function hasDatabaseUrl(): boolean {
   return !!process.env.DATABASE_URL?.trim();
 }
@@ -26,6 +37,12 @@ export function getDbPool(): Pool {
 
 export async function dbQuery<T = unknown>(text: string, params?: unknown[]): Promise<{ rows: T[] }> {
   const p = getDbPool();
-  const res = await p.query(text, params as never);
-  return { rows: res.rows as T[] };
+  try {
+    const res = await p.query(text, params as never);
+    return { rows: res.rows as T[] };
+  } catch (e) {
+    const hint = getDatabaseHostHint();
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`DB query failed (host=${hint}): ${msg}`);
+  }
 }
