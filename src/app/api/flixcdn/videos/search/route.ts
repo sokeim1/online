@@ -28,8 +28,17 @@ export async function GET(req: Request) {
   const offset = (safePage - 1) * safeLimit;
   const cacheKey = `search:${title}:${offset}:${safeLimit}`;
 
+  const now = Date.now();
+  const cachedFast = cache.get(cacheKey);
+  if (cachedFast && now - cachedFast.ts < 5 * 60 * 1000) {
+    const res = NextResponse.json(cachedFast.payload);
+    res.headers.set("x-cache-hit", "1");
+    res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+    return res;
+  }
+
   try {
-    const data = await flixcdnSearch({ title, offset, limit: safeLimit });
+    const data = await flixcdnSearch({ title, offset, limit: safeLimit }, { timeoutMs: 2500, attempts: 1 });
 
     const out = (data.result ?? []).map((x) => {
       const kpId = parseFlixcdnInt(x.kinopoisk_id);
@@ -80,13 +89,14 @@ export async function GET(req: Request) {
     });
 
     cache.set(cacheKey, { ts: Date.now(), payload: await res.clone().json() });
+    res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
     return res;
   } catch (e) {
-    const now = Date.now();
     const cached = cache.get(cacheKey);
     if (cached && now - cached.ts < 5 * 60 * 1000) {
       const res = NextResponse.json(cached.payload);
       res.headers.set("x-cache-fallback", "1");
+      res.headers.set("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
       return res;
     }
 

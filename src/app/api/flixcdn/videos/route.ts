@@ -23,10 +23,21 @@ export async function GET(req: Request) {
   const offset = (safePage - 1) * safeLimit;
   const cacheKey = `videos:${offset}:${safeLimit}`;
 
+  const now = Date.now();
+  const cachedFast = cache.get(cacheKey);
+  if (cachedFast && now - cachedFast.ts < 5 * 60 * 1000) {
+    const res = NextResponse.json(cachedFast.payload);
+    res.headers.set("x-cache-hit", "1");
+    res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
+    return res;
+  }
+
   try {
-    let data = await flixcdnUpdates({ offset, limit: safeLimit });
+    const requestOpts = { timeoutMs: 2500, attempts: 1 };
+
+    let data = await flixcdnUpdates({ offset, limit: safeLimit }, requestOpts);
     if (!data.result?.length) {
-      data = await flixcdnSearch({ offset, limit: safeLimit });
+      data = await flixcdnSearch({ offset, limit: safeLimit }, requestOpts);
     }
 
     const out = (data.result ?? []).map((x) => {
@@ -81,7 +92,6 @@ export async function GET(req: Request) {
     res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
     return res;
   } catch (e) {
-    const now = Date.now();
     const cached = cache.get(cacheKey);
     if (cached && now - cached.ts < 5 * 60 * 1000) {
       const res = NextResponse.json(cached.payload);

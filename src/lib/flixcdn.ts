@@ -113,9 +113,17 @@ export type FlixcdnSearchQuery = {
   limit?: number;
 };
 
-export async function flixcdnSearch(query: FlixcdnSearchQuery): Promise<FlixcdnSearchResponse> {
+export type FlixcdnRequestOpts = {
+  timeoutMs?: number;
+  attempts?: number;
+};
+
+export async function flixcdnSearch(query: FlixcdnSearchQuery, opts?: FlixcdnRequestOpts): Promise<FlixcdnSearchResponse> {
   const bases = getFlixcdnApiBases();
   const token = getFlixcdnToken();
+
+  const timeoutMs = typeof opts?.timeoutMs === "number" && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : 3000;
+  const attempts = typeof opts?.attempts === "number" && Number.isFinite(opts.attempts) && opts.attempts > 0 ? opts.attempts : 2;
 
   let lastErr: unknown = null;
   for (const base of bases) {
@@ -129,7 +137,7 @@ export async function flixcdnSearch(query: FlixcdnSearchQuery): Promise<FlixcdnS
     if (query.limit != null) url.searchParams.set("limit", String(query.limit));
 
     try {
-      const json = await fetchJsonWithRetry(url.toString(), { timeoutMs: 8000, attempts: 3 });
+      const json = await fetchJsonWithRetry(url.toString(), { timeoutMs, attempts });
       return json as FlixcdnSearchResponse;
     } catch (e) {
       lastErr = e;
@@ -144,9 +152,12 @@ export type FlixcdnUpdatesQuery = {
   limit?: number;
 };
 
-export async function flixcdnUpdates(query: FlixcdnUpdatesQuery): Promise<FlixcdnUpdatesResponse> {
+export async function flixcdnUpdates(query: FlixcdnUpdatesQuery, opts?: FlixcdnRequestOpts): Promise<FlixcdnUpdatesResponse> {
   const bases = getFlixcdnApiBases();
   const token = getFlixcdnToken();
+
+  const timeoutMs = typeof opts?.timeoutMs === "number" && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : 3000;
+  const attempts = typeof opts?.attempts === "number" && Number.isFinite(opts.attempts) && opts.attempts > 0 ? opts.attempts : 2;
 
   let lastErr: unknown = null;
   for (const base of bases) {
@@ -156,7 +167,7 @@ export async function flixcdnUpdates(query: FlixcdnUpdatesQuery): Promise<Flixcd
     if (query.limit != null) url.searchParams.set("limit", String(query.limit));
 
     try {
-      const json = await fetchJsonWithRetry(url.toString(), { timeoutMs: 8000, attempts: 3 });
+      const json = await fetchJsonWithRetry(url.toString(), { timeoutMs, attempts });
       return json as FlixcdnUpdatesResponse;
     } catch (e) {
       lastErr = e;

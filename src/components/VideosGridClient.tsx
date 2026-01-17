@@ -393,6 +393,12 @@ export function VideosGridClient({
         sp.set("limit", "20");
         if (type !== "all") sp.set("type", type);
 
+        const requestedLimit = (() => {
+          const raw = sp.get("limit");
+          const n = raw ? Number.parseInt(raw, 10) : 20;
+          return Number.isFinite(n) && n > 0 ? n : 20;
+        })();
+
         for (const k of FILTER_KEYS) {
           for (const v of searchParams.getAll(k)) {
             sp.append(k, v);
@@ -458,7 +464,16 @@ export function VideosGridClient({
         setItems(withOrdering);
 
         if (url.startsWith("/api/flixcdn/")) {
-          setLastPage(null);
+          const hasNext = !!json.links?.next;
+          const reachedEnd = !hasNext || base.length < requestedLimit;
+          if (reachedEnd) {
+            setLastPage((prev) => {
+              if (typeof prev === "number" && Number.isFinite(prev)) return Math.max(prev, page);
+              return page;
+            });
+          } else {
+            setLastPage(null);
+          }
         } else if (isSearchMode && type !== "all") {
           setLastPage(1);
         } else {
