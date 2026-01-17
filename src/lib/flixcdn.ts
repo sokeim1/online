@@ -105,6 +105,28 @@ async function fetchJsonWithRetry(url: string, { timeoutMs, attempts }: { timeou
   throw lastErr instanceof Error ? lastErr : new Error("FlixCDN upstream request failed");
 }
 
+function normalizeFlixcdnResponse(raw: unknown): FlixcdnSearchResponse {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
+
+  const resultRaw = obj?.result;
+  const result = Array.isArray(resultRaw) ? (resultRaw as FlixcdnSearchItem[]) : [];
+
+  const parseNav = (v: unknown): { offset: number; limit: number } | null => {
+    if (!v || typeof v !== "object") return null;
+    const nav = v as Record<string, unknown>;
+    const off = parseFlixcdnInt(nav.offset);
+    const lim = parseFlixcdnInt(nav.limit);
+    if (off == null || lim == null) return null;
+    return { offset: off, limit: lim };
+  };
+
+  return {
+    prev: parseNav(obj?.prev),
+    next: parseNav(obj?.next),
+    result,
+  };
+}
+
 export type FlixcdnSearchQuery = {
   title?: string;
   kinopoisk_id?: number;
@@ -138,7 +160,7 @@ export async function flixcdnSearch(query: FlixcdnSearchQuery, opts?: FlixcdnReq
 
     try {
       const json = await fetchJsonWithRetry(url.toString(), { timeoutMs, attempts });
-      return json as FlixcdnSearchResponse;
+      return normalizeFlixcdnResponse(json);
     } catch (e) {
       lastErr = e;
     }
@@ -168,7 +190,7 @@ export async function flixcdnUpdates(query: FlixcdnUpdatesQuery, opts?: FlixcdnR
 
     try {
       const json = await fetchJsonWithRetry(url.toString(), { timeoutMs, attempts });
-      return json as FlixcdnUpdatesResponse;
+      return normalizeFlixcdnResponse(json);
     } catch (e) {
       lastErr = e;
     }
