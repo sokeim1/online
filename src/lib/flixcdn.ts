@@ -38,8 +38,23 @@ export type FlixcdnSearchResponse = {
 
 export type FlixcdnUpdatesResponse = FlixcdnSearchResponse;
 
+function normalizeApiBase(raw: string): string | null {
+  const s = raw.trim().replace(/\/$/, "");
+  if (!s) return null;
+  if (!/^https?:\/\//i.test(s)) return null;
+  try {
+    const u = new URL(s);
+    if (!u.hostname) return null;
+    return u.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export function getFlixcdnApiBase(): string {
-  return process.env.FLIXCDN_API_BASE?.trim() || "https://api0.flixcdn.biz";
+  const env = process.env.FLIXCDN_API_BASE;
+  const normalized = env ? normalizeApiBase(env) : null;
+  return normalized || "https://api0.flixcdn.biz";
 }
 
 export function getFlixcdnApiBases(): string[] {
@@ -49,7 +64,8 @@ export function getFlixcdnApiBases(): string[] {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((s) => s.replace(/\/$/, ""));
+      .map((s) => normalizeApiBase(s))
+      .filter((x): x is string => !!x);
     if (list.length) return list;
   }
   return [getFlixcdnApiBase().replace(/\/$/, "")];

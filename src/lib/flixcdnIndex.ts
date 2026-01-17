@@ -28,6 +28,46 @@ export async function ensureFlixcdnSchema(): Promise<void> {
     );`,
   );
 
+  await dbQuery(`ALTER TABLE flixcdn_videos ADD COLUMN IF NOT EXISTS genres TEXT[] NULL;`);
+  await dbQuery(`ALTER TABLE flixcdn_videos ADD COLUMN IF NOT EXISTS countries TEXT[] NULL;`);
+
+  const cols = await dbQuery<{ column_name: string; data_type: string }>(
+    `SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_name = 'flixcdn_videos'
+       AND column_name IN ('genres','countries');`,
+  );
+
+  const colType = new Map(cols.rows.map((r) => [r.column_name, r.data_type] as const));
+
+  if (colType.get("genres") === "jsonb") {
+    await dbQuery(
+      `ALTER TABLE flixcdn_videos
+       ALTER COLUMN genres TYPE TEXT[]
+       USING (
+         CASE
+           WHEN genres IS NULL THEN NULL
+           WHEN jsonb_typeof(genres) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text(genres))
+           ELSE NULL
+         END
+       );`,
+    );
+  }
+
+  if (colType.get("countries") === "jsonb") {
+    await dbQuery(
+      `ALTER TABLE flixcdn_videos
+       ALTER COLUMN countries TYPE TEXT[]
+       USING (
+         CASE
+           WHEN countries IS NULL THEN NULL
+           WHEN jsonb_typeof(countries) = 'array' THEN ARRAY(SELECT jsonb_array_elements_text(countries))
+           ELSE NULL
+         END
+       );`,
+    );
+  }
+
   await dbQuery(`CREATE INDEX IF NOT EXISTS flixcdn_videos_kp_id_idx ON flixcdn_videos(kp_id);`);
   await dbQuery(`CREATE INDEX IF NOT EXISTS flixcdn_videos_created_at_idx ON flixcdn_videos(created_at DESC NULLS LAST, flixcdn_id DESC);`);
 
