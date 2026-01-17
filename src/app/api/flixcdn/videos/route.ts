@@ -13,6 +13,8 @@ const cache = new Map<string, CacheEntry>();
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
 
+  const debug = searchParams.get("debug") === "1";
+
   const pageRaw = searchParams.get("page");
   const limitRaw = searchParams.get("limit");
 
@@ -37,9 +39,15 @@ export async function GET(req: Request) {
   const typeRaw = (searchParams.get("type") ?? "").trim();
   const type = typeRaw === "movie" || typeRaw === "serial" ? typeRaw : null;
 
+  let dbAttempted = false;
+  let dbTotal: number | null = null;
+  let dbError: string | null = null;
+
   if (hasDatabaseUrl()) {
     try {
+      dbAttempted = true;
       const r = await listCatalogFromDb({ offset, limit: safeLimit, type });
+      dbTotal = r.total;
       if (r.total > 0) {
         const out = r.items.map((x) => {
           const uploadedAt = x.created_at ?? "";
@@ -83,6 +91,16 @@ export async function GET(req: Request) {
           success: true,
           message: "",
           source: "db",
+          ...(debug
+            ? {
+                debug: {
+                  hasDatabaseUrl: true,
+                  dbAttempted,
+                  dbTotal,
+                  dbError,
+                },
+              }
+            : null),
         };
 
         cache.set(cacheKey, { ts: Date.now(), payload });
@@ -93,12 +111,13 @@ export async function GET(req: Request) {
         return res;
       }
     } catch {
-      // ignore and fallback to upstream
+      dbAttempted = true;
+      dbError = "DB query failed";
     }
   }
 
   try {
-    const requestOpts = { timeoutMs: 2500, attempts: 1 };
+    const requestOpts = debug ? { timeoutMs: 8000, attempts: 1 } : { timeoutMs: 2500, attempts: 1 };
 
     let data = await flixcdnUpdates({ offset, limit: safeLimit }, requestOpts);
     if (!data.result?.length) {
@@ -150,10 +169,22 @@ export async function GET(req: Request) {
       },
       success: true,
       message: "",
+      source: "upstream",
+      ...(debug
+        ? {
+            debug: {
+              hasDatabaseUrl: hasDatabaseUrl(),
+              dbAttempted,
+              dbTotal,
+              dbError,
+            },
+          }
+        : null),
     });
 
     cache.set(cacheKey, { ts: Date.now(), payload: await res.clone().json() });
 
+    res.headers.set("x-source", "upstream");
     res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
     return res;
   } catch (e) {
@@ -166,6 +197,22 @@ export async function GET(req: Request) {
     }
 
     const message = e instanceof Error ? e.message : "FlixCDN temporarily unavailable";
-    return NextResponse.json({ success: false, message }, { status: 502 });
+    return NextResponse.json(
+      {
+        success: false,
+        message,
+        ...(debug
+          ? {
+              debug: {
+                hasDatabaseUrl: hasDatabaseUrl(),
+                dbAttempted,
+                dbTotal,
+                dbError,
+              },
+            }
+          : null),
+      },
+      { status: 502 },
+    );
   }
 }

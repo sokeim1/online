@@ -73,13 +73,16 @@ export async function ensureFlixcdnSchema(): Promise<void> {
 
   await dbQuery(
     `CREATE TABLE IF NOT EXISTS flixcdn_sync_state (
-      key TEXT PRIMARY KEY,
-      offset INTEGER NOT NULL,
+      "key" TEXT PRIMARY KEY,
+      "offset" INTEGER NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );`,
   );
 
-  await dbQuery(`INSERT INTO flixcdn_sync_state(key, offset) VALUES ('full', 0) ON CONFLICT (key) DO NOTHING;`);
+  await dbQuery(
+    `INSERT INTO flixcdn_sync_state("key", "offset") VALUES ('full', 0)
+     ON CONFLICT ("key") DO NOTHING;`,
+  );
   })();
 
   return schemaReady;
@@ -185,10 +188,12 @@ export async function syncFlixcdnCatalog({
   let offset = 0;
   if (mode === "full") {
     if (reset) {
-      await dbQuery(`UPDATE flixcdn_sync_state SET offset = 0, updated_at = NOW() WHERE key = 'full';`);
+      await dbQuery(`UPDATE flixcdn_sync_state SET "offset" = 0, updated_at = NOW() WHERE "key" = 'full';`);
       offset = 0;
     } else {
-      const st = await dbQuery<{ offset: number }>(`SELECT offset FROM flixcdn_sync_state WHERE key = 'full';`);
+      const st = await dbQuery<{ offset: number }>(
+        `SELECT "offset" AS offset FROM flixcdn_sync_state WHERE "key" = 'full';`,
+      );
       offset = typeof st.rows[0]?.offset === "number" ? st.rows[0].offset : 0;
     }
   }
@@ -209,7 +214,7 @@ export async function syncFlixcdnCatalog({
 
     scanned += items.length;
 
-    const rows: FlixcdnVideoRow[] = items.map((x) => {
+    const rowsRaw: FlixcdnVideoRow[] = items.map((x) => {
       const kpId = parseFlixcdnInt(x.kinopoisk_id);
       const imdbId = typeof x.imdb_id === "string" ? x.imdb_id : null;
       const year = parseFlixcdnYear(x.year);
@@ -238,6 +243,45 @@ export async function syncFlixcdnCatalog({
       };
     });
 
+    const unionArray = (a: string[] | null, b: string[] | null): string[] | null => {
+      if (!a?.length) return b?.length ? b : null;
+      if (!b?.length) return a;
+      const set = new Set<string>();
+      for (const x of a) if (typeof x === "string" && x.trim()) set.add(x.trim());
+      for (const x of b) if (typeof x === "string" && x.trim()) set.add(x.trim());
+      const out = Array.from(set);
+      return out.length ? out : null;
+    };
+
+    const pick = <T>(cur: T | null, next: T | null): T | null => (cur != null ? cur : next);
+
+    const rowsMap = new Map<number, FlixcdnVideoRow>();
+    for (const r of rowsRaw) {
+      const prev = rowsMap.get(r.flixcdn_id);
+      if (!prev) {
+        rowsMap.set(r.flixcdn_id, r);
+        continue;
+      }
+      rowsMap.set(r.flixcdn_id, {
+        flixcdn_id: r.flixcdn_id,
+        kp_id: pick(prev.kp_id, r.kp_id),
+        imdb_id: pick(prev.imdb_id, r.imdb_id),
+        type: prev.type,
+        year: pick(prev.year, r.year),
+        title_rus: pick(prev.title_rus, r.title_rus),
+        title_orig: pick(prev.title_orig, r.title_orig),
+        quality: pick(prev.quality, r.quality),
+        poster_url: pick(prev.poster_url, r.poster_url),
+        iframe_url: pick(prev.iframe_url, r.iframe_url),
+        created_at: pick(prev.created_at, r.created_at),
+        genres: unionArray(prev.genres, r.genres),
+        countries: unionArray(prev.countries, r.countries),
+        episodes_count: pick(prev.episodes_count, r.episodes_count),
+      });
+    }
+
+    const rows = Array.from(rowsMap.values());
+
     const q = buildUpsertQuery(rows);
     await dbQuery(q.text, q.params);
     upserted += rows.length;
@@ -246,7 +290,7 @@ export async function syncFlixcdnCatalog({
 
     if (mode === "full") {
       if (nextOffset != null) {
-        await dbQuery(`UPDATE flixcdn_sync_state SET offset = $1, updated_at = NOW() WHERE key = 'full';`, [nextOffset]);
+        await dbQuery(`UPDATE flixcdn_sync_state SET "offset" = $1, updated_at = NOW() WHERE "key" = 'full';`, [nextOffset]);
       }
     }
 
@@ -264,7 +308,7 @@ export async function syncFlixcdnCatalog({
       done = true;
       nextOffset = null;
       if (mode === "full") {
-        await dbQuery(`UPDATE flixcdn_sync_state SET offset = 0, updated_at = NOW() WHERE key = 'full';`);
+        await dbQuery(`UPDATE flixcdn_sync_state SET "offset" = 0, updated_at = NOW() WHERE "key" = 'full';`);
       }
       break;
     }

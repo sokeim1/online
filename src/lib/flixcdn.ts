@@ -105,8 +105,30 @@ async function fetchJsonWithRetry(url: string, { timeoutMs, attempts }: { timeou
       }
 
       try {
-        return text ? (JSON.parse(text) as unknown) : null;
-      } catch {
+        const parsed = text ? (JSON.parse(text) as unknown) : null;
+        if (parsed && typeof parsed === "object") {
+          const p = parsed as any;
+          const messages = Array.isArray(p.messages) ? (p.messages as any[]) : null;
+          if (messages && messages.length) {
+            const firstError = messages.find((m) => {
+              if (!m || typeof m !== "object") return false;
+              const kind = String((m as any).type ?? (m as any).tupe ?? "").toLowerCase();
+              return kind === "error" || kind === "fail";
+            });
+            if (firstError) {
+              const msg = String((firstError as any).message ?? "FlixCDN API error");
+              throw new Error(`FlixCDN API error: ${msg}`);
+            }
+          }
+        }
+        return parsed;
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith("FlixCDN API error:")) {
+          throw err;
+        }
+        if (text && text.trim()) {
+          throw new Error(`FlixCDN API invalid JSON: ${summarizeUpstreamBody(text)}`);
+        }
         return null;
       }
     } catch (e) {
@@ -124,8 +146,65 @@ async function fetchJsonWithRetry(url: string, { timeoutMs, attempts }: { timeou
 function normalizeFlixcdnResponse(raw: unknown): FlixcdnSearchResponse {
   const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
 
-  const resultRaw = obj?.result;
-  const result = Array.isArray(resultRaw) ? (resultRaw as FlixcdnSearchItem[]) : [];
+  const pickArray = (v: unknown): FlixcdnSearchItem[] => {
+    if (Array.isArray(v)) return v as FlixcdnSearchItem[];
+    return [];
+  };
+
+  const fromUpdatesContainer = (v: unknown): FlixcdnSearchItem[] => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return [];
+    const r = v as any;
+    const buckets = [r.movies, r.serials, r.series];
+    const out: FlixcdnSearchItem[] = [];
+
+    for (const b of buckets) {
+      if (!Array.isArray(b)) continue;
+      for (const entry of b) {
+        if (!entry || typeof entry !== "object") continue;
+        const e = entry as any;
+
+        const contentCandidate = e.content ?? e.item ?? e.movie ?? e.serial ?? e.data;
+        if (contentCandidate && typeof contentCandidate === "object" && !Array.isArray(contentCandidate)) {
+          const item: any = { ...contentCandidate };
+          if (typeof e.created === "string" && !item.created_at) item.created_at = e.created;
+          if (e.translation && !item.translations) item.translations = [e.translation];
+          out.push(item as FlixcdnSearchItem);
+          continue;
+        }
+
+        if (e.type && e.id) {
+          out.push(e as FlixcdnSearchItem);
+        }
+      }
+    }
+
+    return out;
+  };
+
+  const candidates = [
+    raw,
+    obj?.result,
+    (obj as any)?.results,
+    obj?.data,
+    (obj as any)?.items,
+    (obj as any)?.list,
+    (obj as any)?.films,
+    (obj as any)?.movies,
+  ];
+
+  let result: FlixcdnSearchItem[] = [];
+  for (const c of candidates) {
+    const arr = pickArray(c);
+    if (arr.length) {
+      result = arr;
+      break;
+    }
+  }
+
+  if (!result.length) {
+    const nested = fromUpdatesContainer(obj?.result);
+    if (nested.length) result = nested;
+  }
 
   const parseNav = (v: unknown): { offset: number; limit: number } | null => {
     if (!v || typeof v !== "object") return null;
