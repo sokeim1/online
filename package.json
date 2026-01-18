@@ -8,6 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "sync:flixcdn": "tsx -r tsconfig-paths/register scripts/flixcdn-sync.ts",
+    "sync:videoseed": "tsx -r tsconfig-paths/register scripts/videoseed-sync.ts",
+    "hydrate:videoseed": "tsx -r tsconfig-paths/register scripts/videoseed-hydrate.ts",
+    "daily:videoseed": "npm run sync:videoseed -- --mode recent --kind all --pages 10 --items 999 && npm run hydrate:videoseed -- --kind all --limit 500 --sleep-ms 80",
     "flixcdn:export": "tsx -r tsconfig-paths/register scripts/flixcdn-export.ts"
   },
   "dependencies": {

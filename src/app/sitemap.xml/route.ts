@@ -1,6 +1,6 @@
 import { hasDatabaseUrl } from "@/lib/db";
 import { dbQuery } from "@/lib/db";
-import { ensureFlixcdnSchema } from "@/lib/flixcdnIndex";
+import { ensureVideoseedSchema } from "@/lib/videoseedIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,17 +59,22 @@ async function buildSitemapIndex(baseUrl: string): Promise<string> {
   sitemaps.push({ loc: `${baseUrl}/sitemap-static.xml`, lastmod });
 
   if (hasDatabaseUrl()) {
-    await ensureFlixcdnSchema();
+    await ensureVideoseedSchema();
     const totalRes = await dbQuery<{ count: string }>(
       `SELECT COUNT(*)::text AS count
-       FROM flixcdn_videos
-       WHERE kp_id IS NOT NULL;`,
+       FROM (
+         SELECT DISTINCT kp_id
+         FROM videoseed_videos
+         WHERE kp_id IS NOT NULL
+       ) t;`,
     );
     const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
 
-    const urlsPerSitemap = 50000;
+    const desiredSitemaps = 5;
+    const maxUrlsPerSitemap = 50000;
+    const urlsPerSitemap = Math.min(maxUrlsPerSitemap, Math.max(1, Math.ceil(total / desiredSitemaps)));
     const totalSitemaps = Math.max(1, Math.ceil(total / urlsPerSitemap));
-    const safeTotal = Math.min(5000, totalSitemaps);
+    const safeTotal = Math.min(5000, Math.max(desiredSitemaps, totalSitemaps));
     for (let part = 1; part <= safeTotal; part += 1) {
       sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
     }

@@ -33,6 +33,7 @@ export function MovieSearchBar({ className }: Props) {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
   const [suggestions, setSuggestions] = useState<VibixVideoLink[]>([]);
+  const [suggestionsTotal, setSuggestionsTotal] = useState<number | null>(null);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,8 +45,9 @@ export function MovieSearchBar({ className }: Props) {
 
   const [filterType, setFilterType] = useState<"all" | "movie" | "serial">("all");
   const [genres, setGenres] = useState<string[]>([]);
-  const [country, setCountry] = useState<string>("");
-  const [year, setYear] = useState<string>("");
+  const [country, setCountry] = useState("");
+  const [year, setYear] = useState("");
+  const [sortByRating, setSortByRating] = useState(false);
 
   useEffect(() => {
     function onHome() {
@@ -73,9 +75,10 @@ export function MovieSearchBar({ className }: Props) {
     });
     if (country.trim()) sp.set("country", country.trim());
     if (year.trim()) sp.set("year", year.trim());
+    if (sortByRating) sp.set("sort", "rating");
 
     return sp.toString();
-  }, [country, filterType, genres, year]);
+  }, [country, filterType, genres, sortByRating, year]);
 
   const isDirectIdQuery = useMemo(() => {
     const q = query.trim();
@@ -140,6 +143,7 @@ export function MovieSearchBar({ className }: Props) {
     setGenres(Array.from(new Set(nextGenres)));
     setCountry(sp.get("country") ?? "");
     setYear(sp.get("year") ?? "");
+    setSortByRating((sp.get("sort") ?? "") === "rating");
   }, [pathname]);
 
   useEffect(() => {
@@ -194,12 +198,14 @@ export function MovieSearchBar({ className }: Props) {
     setGenres([]);
     setCountry("");
     setYear("");
+    setSortByRating(false);
   }
 
   useEffect(() => {
     const q = query.trim();
     if (q.length < 1 || isDirectIdQuery) {
       setSuggestions([]);
+      setSuggestionsTotal(null);
       setIsSuggestionsLoading(false);
       return;
     }
@@ -211,7 +217,7 @@ export function MovieSearchBar({ className }: Props) {
         const sp = new URLSearchParams();
         sp.set("title", q);
         sp.set("page", "1");
-        sp.set("limit", "7");
+        sp.set("limit", "11");
         sp.set("suggest", "1");
         if (filterType !== "all") sp.set("type", filterType);
         if (country.trim()) sp.set("country", country.trim());
@@ -226,13 +232,18 @@ export function MovieSearchBar({ className }: Props) {
         });
         if (!res.ok) {
           setSuggestions([]);
+          setSuggestionsTotal(null);
           return;
         }
         const json = parseResponse(await res.json());
-        setSuggestions(json.data.filter((x) => x.kp_id != null).slice(0, 7));
+        const filtered = json.data.filter((x) => x.kp_id != null);
+        const total = Number.isFinite(json.meta?.total as number) ? (json.meta.total as number) : filtered.length;
+        setSuggestionsTotal(total);
+        setSuggestions(filtered.slice(0, 10));
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         setSuggestions([]);
+        setSuggestionsTotal(null);
       } finally {
         setIsSuggestionsLoading(false);
       }
@@ -272,45 +283,67 @@ export function MovieSearchBar({ className }: Props) {
               {isSuggestionsLoading ? (
                 <div className="p-3 text-xs text-[color:var(--muted)]">Поиск...</div>
               ) : suggestions.length ? (
-                <div className="max-h-80 overflow-auto">
-                  {suggestions.map((s) => {
-                    const title = pickTitle(s);
-                    const canOpen = !!s.kp_id;
-                    const posterSrc = proxyImageUrl(s.poster_url);
+                <div>
+                  <div className="max-h-80 overflow-auto">
+                    {suggestions.map((s) => {
+                      const title = pickTitle(s);
+                      const canOpen = !!s.kp_id;
+                      const posterSrc = proxyImageUrl(s.poster_url);
+                      const href = s.kp_id ? movieSlugHtmlPath(s.kp_id, title) : null;
 
-                    return (
-                      <button
-                        key={`${s.id}-${s.kp_id ?? "nokp"}`}
-                        type="button"
-                        disabled={!canOpen}
-                        onMouseDown={(ev) => {
-                          ev.preventDefault();
-                          if (!s.kp_id) return;
-                          router.push(movieSlugHtmlPath(s.kp_id, title));
-                        }}
-                        className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <div className="h-12 w-9 overflow-hidden rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]">
-                          {posterSrc ? (
-                            <Image
-                              src={posterSrc}
-                              alt={title}
-                              width={36}
-                              height={48}
-                              unoptimized
-                              className="h-full w-full object-cover"
-                            />
-                          ) : null}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm text-[color:var(--foreground)]">{title}</div>
-                          <div className="mt-0.5 text-xs text-[color:var(--muted)]">
-                            {s.year ?? "—"} • {formatTypeLabel(s.type)}
+                      return (
+                        <button
+                          key={`${s.id}-${s.kp_id ?? "nokp"}`}
+                          type="button"
+                          disabled={!canOpen}
+                          onMouseEnter={() => {
+                            if (href) router.prefetch(href);
+                          }}
+                          onMouseDown={(ev) => {
+                            ev.preventDefault();
+                            if (!s.kp_id) return;
+                            router.push(href ?? movieSlugHtmlPath(s.kp_id, title));
+                          }}
+                          className="flex w-full items-center gap-3 border-b border-[color:var(--border)] p-3 text-left hover:bg-[color:var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="h-12 w-9 overflow-hidden rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)]">
+                            {posterSrc ? (
+                              <Image
+                                src={posterSrc}
+                                alt={title}
+                                width={36}
+                                height={48}
+                                unoptimized
+                                className="h-full w-full object-cover"
+                              />
+                            ) : null}
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm text-[color:var(--foreground)]">{title}</div>
+                            <div className="mt-0.5 text-xs text-[color:var(--muted)]">
+                              {s.year ?? "—"} • {formatTypeLabel(s.type)}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {((suggestionsTotal ?? 0) > 10 ? true : false) ? (
+                    <button
+                      type="button"
+                      onMouseDown={(ev) => {
+                        ev.preventDefault();
+                        const sp = new URLSearchParams(filterQueryString);
+                        const q = query.trim();
+                        if (q) sp.set("q", q);
+                        router.push(sp.toString() ? `/?${sp.toString()}` : "/");
+                      }}
+                      className="flex w-full items-center justify-center gap-2 p-3 text-sm font-medium text-[color:var(--foreground)] hover:bg-[color:var(--surface-hover)]"
+                    >
+                      Показать все результаты ({suggestionsTotal ?? 0})
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <div className="p-3 text-xs text-[color:var(--muted)]">Ничего не найдено</div>
@@ -479,6 +512,11 @@ export function MovieSearchBar({ className }: Props) {
               ) : null}
             </div>
           </div>
+
+          <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-[color:var(--foreground)]">
+            <input type="checkbox" checked={sortByRating} onChange={(e) => setSortByRating(e.target.checked)} />
+            <span>Сортировать по рейтингу</span>
+          </label>
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             <button

@@ -13,10 +13,32 @@ function isBlockedHost(hostname: string): boolean {
 function isAllowedHost(hostname: string): boolean {
   const h = hostname.toLowerCase();
   if (h === "ru" || h.endsWith(".ru")) return true;
+  if (h === "videoseed.tv" || h.endsWith(".videoseed.tv")) return true;
   if (h === "yandex.net" || h.endsWith(".yandex.net")) return true;
   if (h === "yandex.ru" || h.endsWith(".yandex.ru")) return true;
   if (h === "kinopoisk.ru" || h.endsWith(".kinopoisk.ru")) return true;
   return false;
+}
+
+function downgradePosterSizeUrl(input: string): string {
+  let u: URL;
+  try {
+    u = new URL(input);
+  } catch {
+    return input;
+  }
+
+  const p = u.pathname;
+  const downgraded = p
+    .replace(/\/posters\/480x720\//i, "/posters/240x320/")
+    .replace(/\/posters\/720x1080\//i, "/posters/360x540/")
+    .replace(/\/480x720\//i, "/240x320/")
+    .replace(/\/720x1080\//i, "/360x540/");
+  if (downgraded !== p) {
+    u.pathname = downgraded;
+    return u.toString();
+  }
+  return input;
 }
 
 export async function GET(req: Request) {
@@ -69,10 +91,29 @@ export async function GET(req: Request) {
     },
   };
 
-  let upstream: Response;
+  let upstream: Response | null = null;
   try {
     upstream = await fetch(target.toString(), requestInit);
   } catch {
+    upstream = null;
+  }
+
+  if (!upstream || !upstream.ok) {
+    const downgraded = downgradePosterSizeUrl(target.toString());
+    if (downgraded !== target.toString()) {
+      try {
+        const fallback = await fetch(downgraded, requestInit);
+        if (fallback.ok) {
+          upstream = fallback;
+        } else if (!upstream) {
+          upstream = fallback;
+        }
+      } catch {
+      }
+    }
+  }
+
+  if (!upstream || !upstream.ok) {
     const fallbackUrl = `https://images.weserv.nl/?url=${encodeURIComponent(target.toString().replace(/^https?:\/\//, ""))}`;
     upstream = await fetch(fallbackUrl, requestInit);
   }

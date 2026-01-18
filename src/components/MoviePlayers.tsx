@@ -6,12 +6,15 @@ import { VibixRendexPlayer } from "@/components/VibixRendexPlayer";
 
 type PlayerId = "p1" | "p2";
 
+type VibixPlayerType = "movie" | "series" | "kp" | "imdb";
+
 export function MoviePlayers({
   storageKey,
   kpId,
   title,
   year,
   imdbId,
+  siteDomain,
   vibix,
 }: {
   storageKey: string;
@@ -19,9 +22,10 @@ export function MoviePlayers({
   title: string;
   year?: number | null;
   imdbId?: string | null;
+  siteDomain?: string | null;
   vibix?: {
     publisherId: string;
-    type: "movie" | "series";
+    type: VibixPlayerType;
     id: string;
     fallbackIframeUrl: string;
     posterSrc?: string | null;
@@ -35,15 +39,37 @@ export function MoviePlayers({
 
   const [selectedId, setSelectedId] = useState<PlayerId>("p1");
 
-  const p2IframeUrl = useMemo(() => {
-    if (Number.isFinite(kpId) && kpId > 0) {
-      return `https://player0.flixcdn.space/show/kinopoisk/${kpId}`;
+  const [videoseedIframeUrl, setVideoseedIframeUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const u = new URL("/api/videoseed/iframe", window.location.origin);
+        if (Number.isFinite(kpId) && kpId > 0) u.searchParams.set("kpId", String(kpId));
+        const imdb = String(imdbId ?? "").trim();
+        if (imdb) u.searchParams.set("imdbId", imdb);
+        u.searchParams.set("autostart", "1");
+
+        const res = await fetch(u.toString(), { cache: "no-store" });
+        if (!res.ok) {
+          if (!cancelled) setVideoseedIframeUrl(null);
+          return;
+        }
+        const json = (await res.json().catch(() => null)) as any;
+        const iframeUrl = typeof json?.iframeUrl === "string" ? json.iframeUrl : null;
+        if (!cancelled) setVideoseedIframeUrl(iframeUrl);
+      } catch {
+        if (!cancelled) setVideoseedIframeUrl(null);
+      }
     }
-    const imdb = String(imdbId ?? "").trim();
-    if (/^tt\d+$/i.test(imdb)) {
-      return `https://player0.flixcdn.space/show/imdb/${encodeURIComponent(imdb)}`;
-    }
-    return null;
+
+    if (typeof window !== "undefined") load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [imdbId, kpId]);
 
   useEffect(() => {
@@ -94,11 +120,11 @@ export function MoviePlayers({
       <div className="overflow-hidden rounded-2xl border border-[color:var(--border)] bg-black">
         <div className="relative aspect-video w-full">
           {selectedId === "p1" ? (
-            p2IframeUrl ? (
+            videoseedIframeUrl ? (
               <iframe
-                src={p2IframeUrl}
+                src={videoseedIframeUrl}
                 className="absolute inset-0 h-full w-full"
-                allow="autoplay; fullscreen; picture-in-picture"
+                allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
                 allowFullScreen
                 loading="lazy"
                 title={title}

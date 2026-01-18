@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { flixcdnSearch, parseFlixcdnInt } from "@/lib/flixcdn";
+import { videoseedItem } from "@/lib/videoseed";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,9 +14,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ imdbId:
   }
 
   try {
-    const data = await flixcdnSearch({ imdb_id: id, limit: 1, offset: 0 });
-    const first = (data.result ?? [])[0];
-    const kpId = first ? parseFlixcdnInt(first.kinopoisk_id) : null;
+    const movie = await videoseedItem({ item: "movie", imdb: id }, { timeoutMs: 8000, attempts: 2 }).catch(() => null);
+    const serial = movie ? null : await videoseedItem({ item: "serial", imdb: id }, { timeoutMs: 8000, attempts: 2 }).catch(() => null);
+
+    const picked = movie ?? serial;
+    const kpRaw = picked && (picked as any).id_kp;
+    const kpId = kpRaw != null ? Number(kpRaw) : null;
 
     return NextResponse.json({ success: true, data: { kp_id: kpId } });
   } catch (e) {

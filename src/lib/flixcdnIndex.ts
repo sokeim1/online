@@ -649,7 +649,7 @@ export async function searchCatalogFromDb({
 
   const trgm = await hasPgTrgm();
   let trgmParamIdx: number | null = null;
-  if (trgm) {
+  if (trgm && qText.length >= 2) {
     params.push(qText);
     trgmParamIdx = params.length;
   }

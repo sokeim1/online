@@ -75,7 +75,7 @@ export function VideosGridClient({
   const didInitFromUrl = useRef(false);
 
   const filtersKey = useMemo(() => {
-    const keys = ["year", "genre", "country"];
+    const keys = ["year", "genre", "country", "sort"];
     return keys
       .flatMap((k) => searchParams.getAll(k).map((v) => `${k}=${v}`))
       .sort()
@@ -98,13 +98,17 @@ export function VideosGridClient({
 
   const [debouncedQuery, setDebouncedQuery] = useState(() => (initialQ ?? "").trim());
 
-  const [navGenre, setNavGenre] = useState<string | null>(null);
+  const [navGenres, setNavGenres] = useState<string[]>([]);
   const [navCountry, setNavCountry] = useState<string | null>(null);
   const [navYear, setNavYear] = useState<number | null>(null);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
+  const [sortByRating, setSortByRating] = useState(false);
+
   const featuredNewScrollerRef = useRef<HTMLDivElement | null>(null);
   const [featuredNewItems, setFeaturedNewItems] = useState<VibixVideoLink[]>([]);
+
+  const selectedNavGenre = navGenres[0] ?? null;
 
   const navLists = useMemo(() => {
     const years = [2025, 2020, 2017, 2013, 2009, 2002, 2021, 2018, 2015, 2011, 2004, 2000];
@@ -144,7 +148,7 @@ export function VideosGridClient({
   function setNavigation(next: { year?: number; genre?: string; country?: string } | null) {
     if (!next) {
       setNavYear(null);
-      setNavGenre(null);
+      setNavGenres([]);
       setNavCountry(null);
       setIsMobileNavOpen(false);
       setPage(1);
@@ -153,16 +157,16 @@ export function VideosGridClient({
 
     if (next.year != null) {
       setNavYear(next.year);
-      setNavGenre(null);
+      setNavGenres([]);
       setNavCountry(null);
     } else if (next.genre) {
-      setNavGenre(next.genre);
+      setNavGenres([next.genre]);
       setNavYear(null);
       setNavCountry(null);
     } else if (next.country) {
       setNavCountry(next.country);
       setNavYear(null);
-      setNavGenre(null);
+      setNavGenres([]);
     }
 
     setDebouncedQuery("");
@@ -175,25 +179,27 @@ export function VideosGridClient({
     const t = searchParams.get("type") ?? initialType ?? "all";
     const pRaw = searchParams.get("page") ?? initialPage ?? null;
     const p = pRaw ? Number.parseInt(pRaw, 10) : 1;
+    const sort = (searchParams.get("sort") ?? "").trim();
 
     const yRaw = searchParams.get("year");
-    const gRaw = searchParams.get("genre");
+    const gRawAll = searchParams
+      .getAll("genre")
+      .flatMap((g) => String(g ?? "").split(","))
+      .map((g) => g.trim())
+      .filter(Boolean);
     const cRaw = searchParams.get("country");
     const y = yRaw ? Number.parseInt(yRaw, 10) : null;
 
     const nextType: TypeFilter = t === "movie" || t === "serial" || t === "all" ? t : "all";
     const nextPage = Number.isFinite(p) && p > 0 ? p : 1;
-    const nextQuery = q;
     const nextDebounced = q.trim();
+    const nextSortByRating = sort === "rating";
 
     let nextYear: number | null = null;
-    let nextGenre: string | null = null;
+    const nextGenres = Array.from(new Set(gRawAll)).slice(0, 6);
     let nextCountry: string | null = null;
     if (Number.isFinite(y as number) && y && y > 1800) {
       nextYear = y;
-    }
-    if (gRaw) {
-      nextGenre = gRaw;
     }
     if (cRaw) {
       nextCountry = cRaw;
@@ -205,8 +211,9 @@ export function VideosGridClient({
       setPage(nextPage);
       setDebouncedQuery(nextDebounced);
       setNavYear(nextYear);
-      setNavGenre(nextGenre);
+      setNavGenres(nextGenres);
       setNavCountry(nextCountry);
+      setSortByRating(nextSortByRating);
       return;
     }
 
@@ -214,8 +221,13 @@ export function VideosGridClient({
     setPage((prev) => (prev === nextPage ? prev : nextPage));
     setDebouncedQuery((prev) => (prev === nextDebounced ? prev : nextDebounced));
     setNavYear((prev) => (prev === nextYear ? prev : nextYear));
-    setNavGenre((prev) => (prev === nextGenre ? prev : nextGenre));
+    setNavGenres((prev) => {
+      const a = prev.join("|");
+      const b = nextGenres.join("|");
+      return a === b ? prev : nextGenres;
+    });
     setNavCountry((prev) => (prev === nextCountry ? prev : nextCountry));
+    setSortByRating((prev) => (prev === nextSortByRating ? prev : nextSortByRating));
   }, [searchParams]);
 
   useEffect(() => {
@@ -236,9 +248,14 @@ export function VideosGridClient({
     sp.delete("year");
     sp.delete("genre");
     sp.delete("country");
+    sp.delete("sort");
     if (navYear != null) sp.set("year", String(navYear));
-    if (navGenre) sp.set("genre", navGenre);
+    for (const g of navGenres) {
+      const v = String(g ?? "").trim();
+      if (v) sp.append("genre", v);
+    }
     if (navCountry) sp.set("country", navCountry);
+    if (sortByRating) sp.set("sort", "rating");
 
     const next = sp.toString();
     const current = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : searchParams.toString();
@@ -246,7 +263,7 @@ export function VideosGridClient({
 
     const url = next ? `${pathname}?${next}` : pathname;
     window.history.replaceState(null, "", url);
-  }, [debouncedQuery, navCountry, navGenre, navYear, page, pathname, searchParams, type]);
+  }, [debouncedQuery, navCountry, navGenres, navYear, page, pathname, searchParams, sortByRating, type]);
 
   const canLoadMore = useMemo(() => {
     if (isLoading) return false;
@@ -257,7 +274,7 @@ export function VideosGridClient({
 
   const isSearchMode = useMemo(() => debouncedQuery.trim().length > 0, [debouncedQuery]);
 
-  const isBrowseMode = useMemo(() => !isSearchMode && (navYear != null || !!navGenre || !!navCountry), [isSearchMode, navCountry, navGenre, navYear]);
+  const isBrowseMode = useMemo(() => !isSearchMode && (navYear != null || navGenres.length > 0 || !!navCountry), [isSearchMode, navCountry, navGenres, navYear]);
 
   const pagination = useMemo(() => {
     if (!lastPage || lastPage <= 1) {
@@ -284,7 +301,7 @@ export function VideosGridClient({
       setLastPage(null);
       setError(null);
       setNavYear(null);
-      setNavGenre(null);
+      setNavGenres([]);
       setNavCountry(null);
       setHomeNonce((n) => n + 1);
     }
@@ -368,7 +385,7 @@ export function VideosGridClient({
     setLastPage(null);
     setError(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [debouncedQuery, navCountry, navGenre, navYear]);
+  }, [debouncedQuery, navCountry, navGenres, navYear, sortByRating]);
 
   useEffect(() => {
     const ac = new AbortController();
@@ -381,6 +398,7 @@ export function VideosGridClient({
         sp.set("page", String(page));
         sp.set("limit", "20");
         if (type !== "all") sp.set("type", type);
+        if (sortByRating) sp.set("sort", "rating");
 
         const requestedLimit = (() => {
           const raw = sp.get("limit");
@@ -389,7 +407,10 @@ export function VideosGridClient({
         })();
 
         if (navYear != null) sp.set("year", String(navYear));
-        if (navGenre) sp.set("genre", navGenre);
+        for (const g of navGenres) {
+          const v = String(g ?? "").trim();
+          if (v) sp.append("genre", v);
+        }
         if (navCountry) sp.set("country", navCountry);
 
         let url: string;
@@ -427,7 +448,7 @@ export function VideosGridClient({
         const filtered = type !== "all" ? base.filter((v) => v.type === type) : base;
 
         const withOrdering =
-          !isSearchMode
+          sortByRating && !isSearchMode
             ? filtered
                 .slice()
                 .sort((a, b) => {
@@ -480,7 +501,7 @@ export function VideosGridClient({
     return () => {
       ac.abort();
     };
-  }, [page, type, isBrowseMode, isSearchMode, debouncedQuery, homeNonce, navCountry, navGenre, navYear, filtersKey]);
+  }, [page, type, isBrowseMode, isSearchMode, debouncedQuery, homeNonce, navCountry, navGenres, navYear, filtersKey, sortByRating]);
 
   const PaginationBlock = useMemo(() => {
     const show = lastPage == null ? page > 1 || canLoadMore : pagination.show;
@@ -589,11 +610,11 @@ export function VideosGridClient({
                         key={g}
                         type="button"
                         onClick={() => {
-                          if (navGenre === g) setNavigation(null);
+                          if (selectedNavGenre === g) setNavigation(null);
                           else setNavigation({ genre: g });
                         }}
                         className={`text-left hover:text-[color:var(--foreground)] ${
-                          navGenre === g ? "text-[color:var(--accent)]" : ""
+                          selectedNavGenre === g ? "text-[color:var(--accent)]" : ""
                         }`}
                       >
                         {g}
@@ -668,11 +689,11 @@ export function VideosGridClient({
                             key={`m-${g}`}
                             type="button"
                             onClick={() => {
-                              if (navGenre === g) setNavigation(null);
+                              if (selectedNavGenre === g) setNavigation(null);
                               else setNavigation({ genre: g });
                             }}
                             className={`rounded-lg border px-2 py-1 text-left transition ${
-                              navGenre === g
+                              selectedNavGenre === g
                                 ? "border-[color:var(--accent)] bg-[color:var(--surface-hover)] text-[color:var(--foreground)]"
                                 : "border-[color:var(--border)] bg-transparent text-[color:var(--muted)] hover:bg-[color:var(--surface-hover)]"
                             }`}

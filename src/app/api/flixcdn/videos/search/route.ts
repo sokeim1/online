@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { hasDatabaseUrl } from "@/lib/db";
-import { flixcdnSearch, parseFlixcdnInt, parseFlixcdnYear } from "@/lib/flixcdn";
-import { searchCatalogFromDb } from "@/lib/flixcdnIndex";
+import { parseVideoseedYear, splitCommaList, videoseedList } from "@/lib/videoseed";
+import { searchVideoseedCatalogFromDb } from "@/lib/videoseedIndex";
+import { getVibixVideoByKpId } from "@/lib/vibix";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CacheEntry = { ts: number; payload: unknown };
 const cache = new Map<string, CacheEntry>();
+
+type RatingEntry = { ts: number; kp_rating: number | null; imdb_rating: number | null };
+const ratingCache = new Map<number, RatingEntry>();
 
 function parseRatingFromUpstream(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -20,6 +24,64 @@ function parseRatingFromUpstream(raw: unknown): number | null {
     return Number.isFinite(n) ? n : null;
   }
   return null;
+}
+
+function ratingValue(v: { kp_rating?: unknown; imdb_rating?: unknown }): number {
+  const a = parseRatingFromUpstream(v.kp_rating);
+  const b = parseRatingFromUpstream(v.imdb_rating);
+  const n = Math.max(a ?? -1, b ?? -1);
+  return Number.isFinite(n) ? n : -1;
+}
+
+async function enrichRatings<T extends { kp_id: number | null; kp_rating?: number | null; imdb_rating?: number | null }>(
+  items: T[],
+): Promise<T[]> {
+  const ttlMs = 6 * 60 * 60 * 1000;
+  const now = Date.now();
+  const out = items.slice();
+
+  const need = out
+    .map((v, idx) => ({ v, idx }))
+    .filter(({ v }) => v.kp_id != null && (v.kp_rating == null || v.imdb_rating == null));
+
+  const concurrency = 8;
+  for (let i = 0; i < need.length; i += concurrency) {
+    const chunk = need.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      chunk.map(async ({ v }) => {
+        const kpId = v.kp_id as number;
+        const cached = ratingCache.get(kpId);
+        if (cached && now - cached.ts < ttlMs) return cached;
+        try {
+          const d = await getVibixVideoByKpId(kpId);
+          const entry: RatingEntry = {
+            ts: now,
+            kp_rating: d.kp_rating ?? null,
+            imdb_rating: d.imdb_rating ?? null,
+          };
+          ratingCache.set(kpId, entry);
+          return entry;
+        } catch {
+          const entry: RatingEntry = { ts: now, kp_rating: null, imdb_rating: null };
+          ratingCache.set(kpId, entry);
+          return entry;
+        }
+      }),
+    );
+
+    for (let j = 0; j < chunk.length; j += 1) {
+      const { idx } = chunk[j]!;
+      const r = results[j];
+      if (r.status !== "fulfilled") continue;
+      out[idx] = {
+        ...out[idx],
+        kp_rating: out[idx].kp_rating ?? r.value.kp_rating,
+        imdb_rating: out[idx].imdb_rating ?? r.value.imdb_rating,
+      };
+    }
+  }
+
+  return out;
 }
 
 function pickRating(obj: unknown, keys: string[]): number | null {
@@ -93,7 +155,10 @@ export async function GET(req: Request) {
   const suggest = searchParams.get("suggest") === "1";
   const forceUpstream = searchParams.get("forceUpstream") === "1";
 
-  const cacheKey = `search:${title}:${offset}:${safeLimit}:type=${type ?? ""}:year=${safeYear ?? ""}:genre=${genres.join(",")}:country=${country ?? ""}`;
+  const sort = (searchParams.get("sort") ?? "").trim();
+  const sortByRating = sort === "rating";
+
+  const cacheKey = `search:${title}:${offset}:${safeLimit}:type=${type ?? ""}:year=${safeYear ?? ""}:genre=${genres.join(",")}:country=${country ?? ""}:sort=${sortByRating ? "rating" : ""}`;
 
   const now = Date.now();
   const cachedFast = cache.get(cacheKey);
@@ -106,7 +171,7 @@ export async function GET(req: Request) {
 
   if (!forceUpstream && hasDatabaseUrl()) {
     try {
-      const r = await searchCatalogFromDb({
+      const r = await searchVideoseedCatalogFromDb({
         query: title,
         offset,
         limit: safeLimit,
@@ -116,28 +181,38 @@ export async function GET(req: Request) {
         country,
       });
 
-      const out = r.items.map((x) => {
+      let out = r.items.map((x) => {
         const uploadedAt = x.created_at ?? "";
         return {
-          id: Number(x.flixcdn_id),
+          id: Number(x.videoseed_id),
           name: x.title_orig ?? x.title_rus ?? "",
           name_rus: x.title_rus,
-          name_eng: null,
+          name_eng: x.title_orig,
           type: x.type,
           year: x.year,
           kp_id: x.kp_id,
           imdb_id: x.imdb_id,
           iframe_url: x.iframe_url ?? "",
           poster_url: x.poster_url,
-          quality: x.quality ?? "",
+          quality: "",
           uploaded_at: uploadedAt,
           genre: x.genres,
           country: x.countries,
           kp_rating: null,
           imdb_rating: null,
-          episodes_count: x.episodes_count,
+          episodes_count: null,
         };
       });
+
+      if (sortByRating) {
+        out = await enrichRatings(out);
+        out.sort((a, b) => {
+          const av = ratingValue(a);
+          const bv = ratingValue(b);
+          if (bv !== av) return bv - av;
+          return (b.id ?? 0) - (a.id ?? 0);
+        });
+      }
 
       const lastPage = r.total > 0 ? Math.max(1, Math.ceil(r.total / safeLimit)) : 1;
       const hasNext = safePage < lastPage;
@@ -166,55 +241,77 @@ export async function GET(req: Request) {
       res.headers.set("x-source", "db");
       res.headers.set("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=3600");
       return res;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : "DB search failed";
-      return NextResponse.json({ success: false, message, source: "db" }, { status: 500 });
+    } catch {
+      // fall back to upstream
     }
   }
 
   try {
-    const data = await flixcdnSearch(
-      { title, offset, limit: safeLimit },
-      suggest ? { timeoutMs: 6000, attempts: 2 } : { timeoutMs: 2500, attempts: 1 },
-    );
-
-    const out = (data.result ?? [])
-      .map((x) => {
-      const kpId = parseFlixcdnInt(x.kinopoisk_id);
-      const imdbId = typeof x.imdb_id === "string" ? x.imdb_id : null;
-      const year = parseFlixcdnYear(x.year);
-      const posterUrl = typeof x.poster === "string" ? x.poster : null;
-      const iframeUrl = typeof x.iframe_url === "string" ? x.iframe_url : "";
-      const quality = typeof x.quality === "string" ? x.quality : "";
-      const uploadedAt = typeof x.created_at === "string" ? x.created_at : "";
-
-      return {
-        id: x.id,
-        name: x.title_orig ?? x.title_rus ?? "",
-        name_rus: x.title_rus ?? null,
-        name_eng: null,
-        type: x.type === "serial" ? "serial" : "movie",
-        year,
-        kp_id: kpId,
-        imdb_id: imdbId,
-        iframe_url: iframeUrl,
-        poster_url: posterUrl,
-        quality,
-        uploaded_at: uploadedAt,
-        genre: Array.isArray(x.genres) ? x.genres : null,
-        country: Array.isArray(x.countries) ? x.countries : null,
-        kp_rating: pickRating(x, ["kp_rating", "kinopoisk_rating", "kp", "rating_kp", "ratingKinopoisk", "rating_kinopoisk"]),
-        imdb_rating: pickRating(x, ["imdb_rating", "imdb", "rating_imdb", "ratingImdb"]),
-        episodes_count: x.type === "serial" ? parseFlixcdnInt(x.episode) : null,
-      };
-      })
-      .filter((x) => typeof x.poster_url === "string" && x.poster_url.trim().length > 0);
+    void forceUpstream;
+    const requestOpts = suggest ? { timeoutMs: 9000, attempts: 2 } : { timeoutMs: 6000, attempts: 2 };
 
     const norm = (s: string) => String(s ?? "").trim().toLowerCase();
     const wantGenres = genres.map(norm).filter(Boolean);
     const wantCountry = country ? norm(country) : null;
 
-    const filtered = out.filter((x) => {
+    const yearFrom = safeYear != null ? safeYear : undefined;
+    const yearTo = safeYear != null ? safeYear : undefined;
+
+    const fetchType = async (listType: "movie" | "serial") => {
+      const r = await videoseedList(
+        {
+          list: listType,
+          page: safePage,
+          items: safeLimit,
+          sortBy: "post_date desc",
+          q: title,
+          releaseYearFrom: yearFrom,
+          releaseYearTo: yearTo,
+        },
+        requestOpts,
+      );
+      return { kind: listType, r };
+    };
+
+    const results = type ? [await fetchType(type)] : await Promise.all([fetchType("movie"), fetchType("serial")]);
+
+    const outRaw = results
+      .flatMap(({ kind, r }) =>
+        (r.data ?? []).map((x) => {
+          const kpId = typeof (x as any).id_kp === "string" || typeof (x as any).id_kp === "number" ? Number((x as any).id_kp) : null;
+          const imdbId = typeof (x as any).id_imdb === "string" ? ((x as any).id_imdb as string) : null;
+          const year = parseVideoseedYear((x as any).year);
+          const posterUrl = typeof (x as any).poster === "string" ? ((x as any).poster as string) : null;
+          const iframeUrl = typeof (x as any).iframe === "string" ? ((x as any).iframe as string) : "";
+          const uploadedAt = typeof (x as any).date === "string" ? ((x as any).date as string) : "";
+
+          const gs = splitCommaList((x as any).genre);
+          const cs = splitCommaList((x as any).country);
+
+          return {
+            id: Number((x as any).id) || 0,
+            name: String((x as any).original_name ?? (x as any).name ?? ""),
+            name_rus: typeof (x as any).name === "string" ? ((x as any).name as string) : null,
+            name_eng: typeof (x as any).original_name === "string" ? ((x as any).original_name as string) : null,
+            type: kind,
+            year,
+            kp_id: Number.isFinite(kpId as number) ? (kpId as number) : null,
+            imdb_id: imdbId,
+            iframe_url: iframeUrl,
+            poster_url: posterUrl,
+            quality: "",
+            uploaded_at: uploadedAt,
+            genre: gs,
+            country: cs,
+            kp_rating: null,
+            imdb_rating: null,
+            episodes_count: null,
+          };
+        }),
+      )
+      .filter((x) => typeof x.poster_url === "string" && x.poster_url.trim().length > 0);
+
+    let filtered = outRaw.filter((x) => {
       if (type && x.type !== type) return false;
       if (safeYear != null && x.year !== safeYear) return false;
       if (wantCountry) {
@@ -228,21 +325,36 @@ export async function GET(req: Request) {
       return true;
     });
 
+    if (sortByRating) {
+      filtered = await enrichRatings(filtered);
+      filtered.sort((a, b) => {
+        const av = ratingValue(a);
+        const bv = ratingValue(b);
+        if (bv !== av) return bv - av;
+        return (b.id ?? 0) - (a.id ?? 0);
+      });
+    }
+
+    const anyNext = results.some(({ r }) => r.nextPage != null);
+    const total = results.length === 1 ? results[0]!.r.total ?? filtered.length : filtered.length;
+    const lastPage = total > 0 ? Math.max(1, Math.ceil(total / safeLimit)) : anyNext ? safePage + 1 : safePage;
+
     const res = NextResponse.json({
       data: filtered,
-      links: { first: "", last: "", prev: null, next: data.next ? "1" : null },
+      links: { first: "", last: "", prev: safePage > 1 ? "1" : null, next: anyNext ? "1" : null },
       meta: {
         current_page: safePage,
         from: filtered.length ? offset + 1 : null,
-        last_page: data.next ? safePage + 1 : safePage,
+        last_page: lastPage,
         links: [],
         path: "",
         per_page: safeLimit,
         to: filtered.length ? offset + filtered.length : null,
-        total: filtered.length,
+        total,
       },
       success: true,
       message: "",
+      source: "videoseed",
     });
 
     cache.set(cacheKey, { ts: Date.now(), payload: await res.clone().json() });
@@ -257,18 +369,7 @@ export async function GET(req: Request) {
       return res;
     }
 
-    const message = e instanceof Error ? e.message : "FlixCDN temporarily unavailable";
-    const lower = message.toLowerCase();
-    if (lower.includes("missing env: flixcdn_token") || lower.includes("юзер отсутств") || lower.includes("user") && lower.includes("absent")) {
-      return NextResponse.json(
-        {
-          success: false,
-          message,
-          hint: "Set a valid FLIXCDN_TOKEN (and optionally FLIXCDN_API_BASE/FLIXCDN_API_BASES) or configure DATABASE_URL to use DB-first search.",
-        },
-        { status: 500 },
-      );
-    }
+    const message = e instanceof Error ? e.message : "Videoseed temporarily unavailable";
     return NextResponse.json({ success: false, message }, { status: 502 });
   }
 }

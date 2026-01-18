@@ -1,7 +1,7 @@
 import { movieSlugHtmlPath } from "@/lib/movieUrl";
 import { hasDatabaseUrl } from "@/lib/db";
 import { dbQuery } from "@/lib/db";
-import { ensureFlixcdnSchema } from "@/lib/flixcdnIndex";
+import { ensureVideoseedSchema } from "@/lib/videoseedIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,28 +70,36 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
       `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
   }
 
-  await ensureFlixcdnSchema();
-
-  const urlsPerSitemap = 50000;
-  const offset = (part - 1) * urlsPerSitemap;
+  await ensureVideoseedSchema();
 
   const totalRes = await dbQuery<{ count: string }>(
     `SELECT COUNT(*)::text AS count
-     FROM flixcdn_videos
-     WHERE kp_id IS NOT NULL;`,
+     FROM (
+       SELECT DISTINCT kp_id
+       FROM videoseed_videos
+       WHERE kp_id IS NOT NULL
+     ) t;`,
   );
   const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
-  const totalParts = Math.max(1, Math.ceil(total / urlsPerSitemap));
 
-  if (part > totalParts) {
+  const desiredSitemaps = 5;
+  const maxUrlsPerSitemap = 50000;
+  const urlsPerSitemap = Math.min(maxUrlsPerSitemap, Math.max(1, Math.ceil(total / desiredSitemaps)));
+  const totalParts = Math.max(1, Math.ceil(total / urlsPerSitemap));
+  const safeTotalParts = Math.min(5000, Math.max(desiredSitemaps, totalParts));
+
+  const offset = (part - 1) * urlsPerSitemap;
+
+  if (part > safeTotalParts) {
     throw new SitemapNotFoundError("Not found");
   }
 
   const rows = await dbQuery<{ kp_id: number; title_rus: string | null; title_orig: string | null; created_at: string | null }>(
-    `SELECT kp_id, title_rus, title_orig, created_at
-     FROM flixcdn_videos
+    `SELECT kp_id, MAX(title_rus) AS title_rus, MAX(title_orig) AS title_orig, MAX(created_at) AS created_at
+     FROM videoseed_videos
      WHERE kp_id IS NOT NULL
-     ORDER BY created_at DESC NULLS LAST, flixcdn_id DESC
+     GROUP BY kp_id
+     ORDER BY MAX(created_at) DESC NULLS LAST, kp_id DESC
      LIMIT $1 OFFSET $2;`,
     [urlsPerSitemap, offset],
   );
