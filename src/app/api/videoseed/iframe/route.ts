@@ -69,8 +69,8 @@ async function fetchJson(url: string): Promise<{ res: Response; text: string; js
 }
 
 export async function GET(req: Request) {
-  const token = process.env.VIDEOSEED_TOKEN?.trim();
-  if (!token) {
+  const tokenRaw = process.env.VIDEOSEED_TOKEN?.trim();
+  if (!tokenRaw) {
     return new Response(JSON.stringify({ error: "VIDEOSEED_TOKEN is not set" }), {
       status: 500,
       headers: {
@@ -79,6 +79,8 @@ export async function GET(req: Request) {
       },
     });
   }
+
+  const token = tokenRaw;
 
   const url = new URL(req.url);
   const kpIdRaw = url.searchParams.get("kpId");
