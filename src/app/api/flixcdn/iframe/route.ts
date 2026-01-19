@@ -1,6 +1,28 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type CacheEntry = {
+  iframeUrl: string | null;
+  expiresAt: number;
+  strategy: string | null;
+};
+
+const cache = new Map<string, CacheEntry>();
+
+function getCacheKey({
+  kpId,
+  imdbId,
+  title,
+  year,
+}: {
+  kpId: number | null;
+  imdbId: string | null;
+  title: string | null;
+  year: number | null;
+}): string {
+  return `kp:${kpId ?? ""}|imdb:${imdbId ?? ""}|title:${title ?? ""}|year:${year ?? ""}`;
+}
+
 function getFlixcdnApiBase(): string {
   const raw = process.env.FLIXCDN_API_BASE?.trim() ?? "";
   if (raw && /^https?:\/\//i.test(raw)) {
@@ -114,6 +136,24 @@ export async function GET(req: Request) {
   const title = titleRaw ? titleRaw.trim() : "";
   const year = yearRaw ? Number.parseInt(yearRaw, 10) : NaN;
 
+  const cacheKey = getCacheKey({
+    kpId: Number.isFinite(kpId) && kpId > 0 ? kpId : null,
+    imdbId: imdbId || null,
+    title: title || null,
+    year: Number.isFinite(year) && year > 0 ? year : null,
+  });
+  const cached = cache.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return new Response(JSON.stringify({ iframeUrl: cached.iframeUrl, strategy: cached.strategy ?? "cache" }), {
+      status: cached.iframeUrl ? 200 : 404,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const apiBase = getFlixcdnApiBase().replace(/\/$/, "");
 
   const attempts: Array<{ name: string; params: Array<[string, string]> }> = [];
@@ -172,6 +212,7 @@ export async function GET(req: Request) {
     const iframeUrl = pickIframeUrlFromObject(first);
 
     if (iframeUrl) {
+      cache.set(cacheKey, { iframeUrl, expiresAt: now + 15 * 60 * 1000, strategy: attempt.name });
       return new Response(JSON.stringify({ iframeUrl, strategy: attempt.name }), {
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -182,6 +223,7 @@ export async function GET(req: Request) {
   }
 
   if (lastError) {
+    cache.set(cacheKey, { iframeUrl: null, expiresAt: now + 60 * 1000, strategy: "error" });
     return new Response(JSON.stringify({ error: "Upstream error", status: lastError.status, body: lastError.body }), {
       status: 502,
       headers: {
@@ -191,6 +233,7 @@ export async function GET(req: Request) {
     });
   }
 
+  cache.set(cacheKey, { iframeUrl: null, expiresAt: now + 60 * 1000, strategy: "not_found" });
   return new Response(JSON.stringify({ iframeUrl: null }), {
     status: 404,
     headers: {

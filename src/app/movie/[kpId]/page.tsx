@@ -616,6 +616,7 @@ export default async function MoviePage({
             <section className="mt-8">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold text-[color:var(--foreground)]">Просмотр</h2>
+                <div className="text-right text-sm font-bold text-red-500">ЕСЛИ НЕ РАБОТАЕТ ПЛЕЕР ВЫБЕРИТЕ ДРУГОЙ</div>
               </div>
               <div className="mt-3">
                 <MoviePlayers
