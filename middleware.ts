@@ -1,46 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export function middleware(req: NextRequest) {
-  const hostname = req.nextUrl.hostname;
-
-  const isLocalhost =
-    hostname.startsWith("localhost") ||
-    hostname.startsWith("127.0.0.1") ||
-    hostname === "0.0.0.0";
-
-  const isVercelPreview = hostname.endsWith(".vercel.app");
-
-  if (hostname && !isLocalhost && !isVercelPreview) {
-    const parts = hostname.split(".");
-
-    const isMobile = parts[0] === "m";
-    const isWww = parts[0] === "www";
-    const isWwwMobile = parts[0] === "www" && parts[1] === "m";
-
-    // Only canonicalize common accidental subdomains.
-    if (isMobile || isWww || isWwwMobile) {
-      // Handle mobile subdomain: m.example.com -> example.com
-      if (parts[0] === "m") {
-        parts.shift();
-      }
-      // Handle accidental www.m.example.com -> example.com
-      if (parts[0] === "www" && parts[1] === "m") {
-        parts.splice(0, 2);
-      }
-      // Enforce non-www: www.example.com -> example.com
-      if (parts[0] === "www") {
-        parts.shift();
-      }
-
-      const canonicalHostname = parts.join(".");
-      if (canonicalHostname && canonicalHostname !== hostname) {
-        const url = req.nextUrl.clone();
-        url.hostname = canonicalHostname;
-        return NextResponse.redirect(url, 308);
-      }
-    }
-  }
-
   return NextResponse.next();
 }
 
