@@ -37,18 +37,12 @@ function getMetadataBase(): URL {
         parts.splice(1, 1);
       }
 
-      const host = parts.join(".");
-      if (
-        host &&
-        !host.startsWith("www.") &&
-        !host.startsWith("localhost") &&
-        !host.startsWith("127.0.0.1") &&
-        !host.endsWith(".vercel.app")
-      ) {
-        url.hostname = `www.${host}`;
-      } else {
-        url.hostname = host;
+      if (parts[0] === "www") {
+        parts.shift();
       }
+
+      const host = parts.join(".");
+      url.hostname = host;
       return url;
     } catch {
     }

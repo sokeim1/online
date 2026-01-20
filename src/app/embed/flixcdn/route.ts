@@ -6,12 +6,23 @@ function pickDomain(req: Request): string {
   if (site) {
     try {
       const u = new URL(site);
-      if (u.hostname) return u.hostname;
+      if (u.hostname) {
+        const parts = u.hostname.split(".");
+        if (parts[0] === "m") parts.shift();
+        if (parts[0] === "www" && parts[1] === "m") parts.splice(1, 1);
+        if (parts[0] === "www") parts.shift();
+        return parts.join(".");
+      }
     } catch {
     }
   }
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-  return host.split(":")[0] || "localhost";
+  const rawHost = host.split(":")[0] || "localhost";
+  const parts = rawHost.split(".");
+  if (parts[0] === "m") parts.shift();
+  if (parts[0] === "www" && parts[1] === "m") parts.splice(1, 1);
+  if (parts[0] === "www") parts.shift();
+  return parts.join(".") || "localhost";
 }
 
 function buildPlayerUrl({ kpId, imdbId, domain }: { kpId: number | null; imdbId: string | null; domain: string }): string {

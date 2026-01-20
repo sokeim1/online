@@ -13,25 +13,31 @@ export function middleware(req: NextRequest) {
   if (hostname && !isLocalhost && !isVercelPreview) {
     const parts = hostname.split(".");
 
-    // Handle mobile subdomain: m.example.com -> example.com
-    if (parts[0] === "m") {
-      parts.shift();
-    }
-    // Handle accidental www.m.example.com -> www.example.com
-    if (parts[0] === "www" && parts[1] === "m") {
-      parts.splice(1, 1);
-    }
+    const isMobile = parts[0] === "m";
+    const isWww = parts[0] === "www";
+    const isWwwMobile = parts[0] === "www" && parts[1] === "m";
 
-    // Enforce www on root domains
-    if (parts[0] !== "www") {
-      parts.unshift("www");
-    }
+    // Only canonicalize common accidental subdomains.
+    if (isMobile || isWww || isWwwMobile) {
+      // Handle mobile subdomain: m.example.com -> example.com
+      if (parts[0] === "m") {
+        parts.shift();
+      }
+      // Handle accidental www.m.example.com -> example.com
+      if (parts[0] === "www" && parts[1] === "m") {
+        parts.splice(0, 2);
+      }
+      // Enforce non-www: www.example.com -> example.com
+      if (parts[0] === "www") {
+        parts.shift();
+      }
 
-    const canonicalHostname = parts.join(".");
-    if (canonicalHostname !== hostname) {
-      const url = req.nextUrl.clone();
-      url.hostname = canonicalHostname;
-      return NextResponse.redirect(url, 308);
+      const canonicalHostname = parts.join(".");
+      if (canonicalHostname && canonicalHostname !== hostname) {
+        const url = req.nextUrl.clone();
+        url.hostname = canonicalHostname;
+        return NextResponse.redirect(url, 308);
+      }
     }
   }
 
