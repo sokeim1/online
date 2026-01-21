@@ -49,6 +49,20 @@ function pickIframeUrl(obj: unknown): string | null {
   return null;
 }
 
+function normalizeIframeUrlHost(raw: string): string {
+  const desiredHost = (process.env.VIDEOSEED_IFRAME_HOST ?? "tv-3-kinolot.net").trim();
+  if (!desiredHost) return raw;
+  try {
+    const u = new URL(raw);
+    if (u.hostname && u.hostname !== desiredHost) {
+      u.hostname = desiredHost;
+      return u.toString();
+    }
+  } catch {
+  }
+  return raw;
+}
+
 async function fetchJson(url: string): Promise<{ res: Response; text: string; json: unknown | null }> {
   const res = await fetch(url, {
     headers: {
@@ -128,7 +142,11 @@ export async function GET(req: Request) {
     if (cached.iframeUrl) {
       let iframeUrl: URL;
       try {
-        iframeUrl = new URL(cached.iframeUrl);
+        const normalized = normalizeIframeUrlHost(cached.iframeUrl);
+        if (normalized !== cached.iframeUrl) {
+          cache.set(key, { ...cached, iframeUrl: normalized });
+        }
+        iframeUrl = new URL(normalized);
       } catch {
         cache.delete(key);
         // fall through to fetch
@@ -214,8 +232,9 @@ export async function GET(req: Request) {
 
   if (winner) {
     let iframeUrl: URL;
+    const normalizedRaw = normalizeIframeUrlHost(winner.iframeUrlRaw);
     try {
-      iframeUrl = new URL(winner.iframeUrlRaw);
+      iframeUrl = new URL(normalizedRaw);
     } catch {
       // fall through as not found
       iframeUrl = null as never;
@@ -227,7 +246,7 @@ export async function GET(req: Request) {
       if (autostart) iframeUrl.searchParams.set("autostart", autostart);
       if (start) iframeUrl.searchParams.set("start", start);
 
-      cache.set(key, { iframeUrl: winner.iframeUrlRaw, expiresAt: now + 15 * 60 * 1000, strategy: winner.attempt.name });
+      cache.set(key, { iframeUrl: normalizedRaw, expiresAt: now + 15 * 60 * 1000, strategy: winner.attempt.name });
 
       return new Response(JSON.stringify({ iframeUrl: iframeUrl.toString(), strategy: winner.attempt.name }), {
         headers: {
