@@ -66,27 +66,8 @@ async function buildMoviesSitemap(baseUrl: string, part: number): Promise<string
 
   await ensureVideoseedSchema();
 
-  const totalRes = await dbQuery<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
-     FROM (
-       SELECT DISTINCT kp_id
-       FROM videoseed_videos
-       WHERE kp_id IS NOT NULL
-     ) t;`,
-  );
-  const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
-
-  const desiredSitemaps = 5;
-  const maxUrlsPerSitemap = 50000;
-  const urlsPerSitemap = Math.min(maxUrlsPerSitemap, Math.max(1, Math.ceil(total / desiredSitemaps)));
-  const totalParts = Math.max(1, Math.ceil(total / urlsPerSitemap));
-  const safeTotalParts = Math.min(5000, Math.max(desiredSitemaps, totalParts));
-
+  const urlsPerSitemap = 10000;
   const offset = (part - 1) * urlsPerSitemap;
-
-  if (part > safeTotalParts) {
-    throw new SitemapNotFoundError("Not found");
-  }
 
   const rows = await dbQuery<{ kp_id: number; title_rus: string | null; title_orig: string | null; created_at: string | null }>(
     `SELECT kp_id, MAX(title_rus) AS title_rus, MAX(title_orig) AS title_orig, MAX(created_at) AS created_at
@@ -151,9 +132,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
       },
     });
   } catch (e) {
-    if (e instanceof SitemapNotFoundError) {
-      return new Response("Not found", { status: 404 });
-    }
     if (cached) {
       return new Response(cached.xml, {
         headers: {
@@ -166,7 +144,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
     const xml = `<?xml version="1.0" encoding="UTF-8"?>` +
       `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>`;
     return new Response(xml, {
-      status: 503,
       headers: {
         "Content-Type": "application/xml; charset=utf-8",
         "Cache-Control": "no-store",

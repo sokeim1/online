@@ -64,13 +64,15 @@ async function buildSitemapIndex(baseUrl: string): Promise<string> {
     );
     const total = Number.parseInt(totalRes.rows[0]?.count ?? "0", 10) || 0;
 
-    const desiredSitemaps = 5;
-    const maxUrlsPerSitemap = 50000;
-    const urlsPerSitemap = Math.min(maxUrlsPerSitemap, Math.max(1, Math.ceil(total / desiredSitemaps)));
-    const totalSitemaps = Math.max(1, Math.ceil(total / urlsPerSitemap));
-    const safeTotal = Math.min(5000, Math.max(desiredSitemaps, totalSitemaps));
-    for (let part = 1; part <= safeTotal; part += 1) {
-      sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
+    if (total > 0) {
+      const desiredSitemaps = 5;
+      const maxUrlsPerSitemap = 10000;
+      const urlsPerSitemap = Math.min(maxUrlsPerSitemap, Math.max(1, Math.ceil(total / desiredSitemaps)));
+      const totalSitemaps = Math.max(1, Math.ceil(total / urlsPerSitemap));
+      const safeTotal = Math.min(5000, Math.max(desiredSitemaps, totalSitemaps));
+      for (let part = 1; part <= safeTotal; part += 1) {
+        sitemaps.push({ loc: `${baseUrl}/sitemap-movies.xml/${part}`, lastmod });
+      }
     }
   }
 
