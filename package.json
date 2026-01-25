@@ -4,6 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "sitemap:gen": "tsx -r tsconfig-paths/register scripts/generate-sitemaps.ts",
+    "sitemap:gen:nodb": "tsx -r tsconfig-paths/register scripts/generate-sitemaps.ts --skip-db",
+    "sitemap:gen:fast": "tsx -r tsconfig-paths/register scripts/generate-sitemaps.ts --max-movie-sitemaps 10",
+    "content:update": "npm run daily:videoseed && npm run sitemap:gen",
+    "content:update:fast": "npm run daily:videoseed && npm run sitemap:gen:fast",
+    "prebuild": "tsx -r tsconfig-paths/register scripts/generate-sitemaps.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

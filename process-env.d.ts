@@ -1,3 +1,3 @@
-declare const process: {
-  env: Record<string, string | undefined>;
-};
+declare namespace NodeJS {
+  interface ProcessEnv extends Record<string, string | undefined> {}
+}
