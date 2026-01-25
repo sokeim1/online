@@ -9,6 +9,5 @@ export async function GET(req: Request, ctx: { params: Promise<{ part: string }>
     return new Response("Invalid part", { status: 400 });
   }
 
-  const target = new URL(`/sitemaps/sitemap-movies-${part}.xml`, req.url);
-  return Response.redirect(target, 308);
+  return Response.redirect(`/sitemaps/sitemap-movies-${part}.xml`, 308);
 }
